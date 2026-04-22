@@ -15,7 +15,7 @@ const pool = new Pool({
 });
 
 /**
- * Function to test the database connection on server startup.
+ * Function to test the database connection on server startup..
  * It attempts to connect, logs success, and immediately releases the test connection.
  */
 export const connectDB = async () => {
