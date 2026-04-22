@@ -5,7 +5,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Create a new PostgreSQL connection pool
-// A "Pool" manages multiple connections automatically, which is best practice for web servers
 const pool = new Pool({
   user: process.env.POSTGRES_USER,
   host: process.env.POSTGRES_HOST,
@@ -15,24 +14,18 @@ const pool = new Pool({
 });
 
 /**
- * Function to test the database connection on server startup..
- * It attempts to connect, logs success, and immediately releases the test connection.
+ * Function to test the database connection on server startup.
  */
 export const connectDB = async () => {
   try {
     const client = await pool.connect();
-    console.log('Successfully connected to PostgreSQL database!');
-    
-    // Release the client back to the pool so it can be used by real requests
+    console.log(' Successfully connected to PostgreSQL database!');
     client.release();
   } catch (error) {
-    console.error(' Failed to connect to the database. Please check your .env credentials.');
+    console.error('Failed to connect to the database. Please check your .env credentials.');
     console.error(error);
-    
-    // If the database is required for the app to run, exit the process
     process.exit(1);
   }
 };
 
-// Export the pool so other files (like models/controllers) can use it to run queries
 export default pool;
