@@ -1,0 +1,40 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    # If your git repository is at the root of Arorix-OS instead of arorixOS-server, 
+    # uncomment the line below so GitHub Actions knows where to find the package.json
+    # defaults:
+    #   run:
+    #     working-directory: ./arorixOS-server
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          # cache-dependency-path: './arorixOS-server/package-lock.json' # Uncomment if using a monorepo
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Type Check (TypeScript)
+        run: npx tsc --noEmit
+
+      # Later, when we add Jest for unit testing, we will uncomment this:
+      # - name: Run Tests
+      #   run: npm test

@@ -19,7 +19,7 @@ const pool = new Pool({
 export const connectDB = async () => {
   try {
     const client = await pool.connect();
-    console.log(' Successfully connected to PostgreSQL database!');
+    console.log('Successfully connected to PostgreSQL database!');
     client.release();
   } catch (error) {
     console.error('Failed to connect to the database. Please check your .env credentials.');
