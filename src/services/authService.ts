@@ -44,8 +44,13 @@ export const registerUser = async (data: any) => {
         state, 
         email, 
         phone, 
-        is_paid
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        is_paid,
+        website,
+        street,
+        city,
+        zip_code,
+        country
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
       [
         businessName, 
         data.entityType || null,
@@ -53,7 +58,12 @@ export const registerUser = async (data: any) => {
         data.stateOfFormation || null,
         email, // Defaulting business email to user email
         data.phone || null,
-        isPaid
+        isPaid,
+        data.website || null,
+        data.street || null,
+        data.city || null,
+        data.zipCode || null,
+        data.country || null
       ]
     );
     const businessId = businessResult.rows[0].id;

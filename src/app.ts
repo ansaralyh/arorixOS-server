@@ -1,6 +1,8 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes';
+import userRoutes from './routes/userRoutes';
+import businessRoutes from './routes/businessRoutes';
 import { errorHandler, AppError } from './middlewares/errorHandler';
 
 // Application setup (express instance, middleware registration)
@@ -12,6 +14,8 @@ app.use(express.json());
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/businesses', businessRoutes);
 
 // Basic Health Check Route
 app.get('/api/health', (req: Request, res: Response) => {
