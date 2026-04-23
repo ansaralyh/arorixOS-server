@@ -3,36 +3,39 @@ import path from 'path';
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
 
-// Create a new PostgreSQL connection pool
 const pool = new Pool({
-  user: process.env.POSTGRES_USER,
-  host: process.env.POSTGRES_HOST,
-  database: process.env.POSTGRES_DB,
-  password: process.env.POSTGRES_PASSWORD,
-  port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+  user: process.env.POSTGRES_USER || 'postgres',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'arorixOS',
+  password: process.env.POSTGRES_PASSWORD || 'root',
+  port: parseInt(process.env.POSTGRES_PORT || '5432'),
 });
 
 const runMigration = async () => {
+  console.log('Starting database migration...');
+  const client = await pool.connect();
+  
   try {
-    console.log('Starting database migration...');
+    const sqlPath = path.join(__dirname, 'init.sql');
+    const sql = fs.readFileSync(sqlPath, 'utf8');
     
-    // Read the init.sql file
-    const sqlFilePath = path.join(__dirname, 'init.sql');
-    const sql = fs.readFileSync(sqlFilePath, 'utf8');
+    await client.query(sql);
 
-    // Execute the SQL queries
-    await pool.query(sql);
-    
+    // Manually add the is_paid column if it wasn't added because the table already existed
+    try {
+        await client.query('ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT FALSE;');
+        console.log('Ensured is_paid column exists.');
+    } catch (e) {
+        console.log('Could not alter businesses table, might already exist correctly.');
+    }
+
     console.log('Migration completed successfully! All tables and triggers are set up.');
   } catch (error) {
-    console.error('Migration failed. Please check your database connection and SQL syntax.');
-    console.error(error);
-    process.exit(1);
+    console.error('Error running migration:', error);
   } finally {
-    // Close the database connection
+    client.release();
     await pool.end();
   }
 };

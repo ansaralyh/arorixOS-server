@@ -3,48 +3,51 @@ import * as authService from '../services/authService';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
 
-// Registration Controller
 export const register = catchAsync(async (req: Request, res: Response) => {
   const { email, password, firstName, lastName, businessName } = req.body;
 
-  // 1. Input Validation
+  // Basic validation
   if (!email || !password || !firstName || !lastName || !businessName) {
-    throw new AppError('All fields are required (email, password, firstName, lastName, businessName).', 400);
+    throw new AppError('Please provide all required fields: email, password, firstName, lastName, businessName.', 400); // 400 Bad Request
   }
 
-  // 2. Call Service Layer
-  const result = await authService.registerUser({
-    email,
-    password,
-    firstName,
-    lastName,
-    businessName
-  });
+  const result = await authService.registerUser(req.body);
 
-  // 3. Send Response
-  res.status(201).json({
+  res.status(201).json({ // 201 Created
     status: 'success',
-    message: 'Account created successfully',
     data: result
   });
 });
 
-// Login Controller
 export const login = catchAsync(async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
-  // 1. Input Validation
   if (!email || !password) {
-    throw new AppError('Email and password are required.', 400);
+    throw new AppError('Please provide email and password.', 400);
   }
 
-  // 2. Call Service Layer
-  const result = await authService.loginUser({ email, password });
+  const result = await authService.loginUser(req.body);
 
-  // 3. Send Response
   res.status(200).json({
     status: 'success',
-    message: 'Login successful',
+    data: result
+  });
+});
+
+export const funnelCheckout = catchAsync(async (req: Request, res: Response) => {
+  // This endpoint gets hit from the funnel when the user clicks "Pay".
+  const { email, firstName, lastName, businessName } = req.body;
+
+  if (!email || !firstName || !lastName || !businessName) {
+    throw new AppError('Please provide all required fields: email, firstName, lastName, businessName.', 400);
+  }
+
+  // Automatically generate a secure password, register the user and the business,
+  // mark them as paid (because of Dev Mode)
+  const result = await authService.registerFromFunnel(req.body);
+
+  res.status(201).json({
+    status: 'success',
     data: result
   });
 });
