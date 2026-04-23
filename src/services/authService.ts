@@ -7,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me_in_p
 const IS_DEV_MODE = process.env.NODE_ENV === 'development';
 
 export const registerUser = async (data: any) => {
-  const { email, password, firstName, lastName, businessName } = data;
+  const { email, password, firstName, lastName, businessName, phone } = data;
 
   // 1. Check if user exists
   const userCheck = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -20,8 +20,6 @@ export const registerUser = async (data: any) => {
   const passwordHash = await bcrypt.hash(password, saltRounds);
 
   // 3. Set payment status based on environment
-  // In development, auto-mark everyone as paid so we can build the dashboard.
-  // In production, this stays false until a Stripe webhook confirms payment.
   const isPaid = IS_DEV_MODE ? true : false;
 
   // 4. Transaction to ensure User, Business, and Member are all created together
@@ -31,16 +29,32 @@ export const registerUser = async (data: any) => {
 
     // Insert User
     const userResult = await client.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name) 
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [email, passwordHash, firstName, lastName]
+      `INSERT INTO users (email, password_hash, first_name, last_name, phone) 
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [email, passwordHash, firstName, lastName, phone || null]
     );
     const userId = userResult.rows[0].id;
 
     // Insert Business (with the is_paid flag)
     const businessResult = await client.query(
-      `INSERT INTO businesses (name, is_paid) VALUES ($1, $2) RETURNING id`,
-      [businessName, isPaid]
+      `INSERT INTO businesses (
+        name, 
+        entity_type, 
+        industry, 
+        state, 
+        email, 
+        phone, 
+        is_paid
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [
+        businessName, 
+        data.entityType || null,
+        data.industry || null,
+        data.stateOfFormation || null,
+        email, // Defaulting business email to user email
+        data.phone || null,
+        isPaid
+      ]
     );
     const businessId = businessResult.rows[0].id;
 
@@ -57,8 +71,23 @@ export const registerUser = async (data: any) => {
 
     return {
       token,
-      user: { id: userId, email, firstName, lastName },
-      business: { id: businessId, name: businessName, isPaid }
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName,
+        phone: phone || null 
+      },
+      business: { 
+        id: businessId, 
+        name: businessName, 
+        isPaid,
+        entityType: data.entityType || null,
+        industry: data.industry || null,
+        stateOfFormation: data.stateOfFormation || null,
+        email: email,
+        phone: data.phone || null
+      }
     };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -118,7 +147,7 @@ export const loginUser = async (data: any) => {
 
   // 3. Get their primary business
   const businessResult = await pool.query(
-    `SELECT b.id, b.name, b.is_paid, bm.role 
+    `SELECT b.id, b.name, b.is_paid, b.entity_type, b.industry, b.state, b.email as business_email, b.phone as business_phone, bm.role 
      FROM businesses b 
      JOIN business_members bm ON b.id = bm.business_id 
      WHERE bm.user_id = $1 LIMIT 1`,
@@ -128,11 +157,22 @@ export const loginUser = async (data: any) => {
   let businessId = null;
   let businessName = null;
   let isPaid = false;
+  let entityType = null;
+  let industry = null;
+  let stateOfFormation = null;
+  let businessEmail = null;
+  let businessPhone = null;
   
   if (businessResult.rows.length > 0) {
-    businessId = businessResult.rows[0].id;
-    businessName = businessResult.rows[0].name;
-    isPaid = businessResult.rows[0].is_paid;
+    const b = businessResult.rows[0];
+    businessId = b.id;
+    businessName = b.name;
+    isPaid = b.is_paid;
+    entityType = b.entity_type;
+    industry = b.industry;
+    stateOfFormation = b.state;
+    businessEmail = b.business_email;
+    businessPhone = b.business_phone;
   }
 
   // 4. Check if they have paid
@@ -145,7 +185,22 @@ export const loginUser = async (data: any) => {
 
   return {
     token,
-    user: { id: user.id, email: user.email, firstName: user.first_name, lastName: user.last_name },
-    business: businessId ? { id: businessId, name: businessName, isPaid } : null
+    user: { 
+      id: user.id, 
+      email: user.email, 
+      firstName: user.first_name, 
+      lastName: user.last_name,
+      phone: user.phone
+    },
+    business: businessId ? { 
+      id: businessId, 
+      name: businessName, 
+      isPaid,
+      entityType,
+      industry,
+      stateOfFormation,
+      email: businessEmail,
+      phone: businessPhone
+    } : null
   };
 };

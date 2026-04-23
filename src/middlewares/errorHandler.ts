@@ -15,17 +15,18 @@ export class AppError extends Error {
 
 // Global Error Handling Middleware
 export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Error:', err);
-
   // If it's our custom AppError, send the specific status code and message
   if (err instanceof AppError) {
+    // Just log the message for handled errors so it doesn't look like a crash in the terminal
+    console.error(`[Handled Error] ${err.statusCode}: ${err.message}`);
     return res.status(err.statusCode).json({
       status: 'error',
       message: err.message,
     });
   }
 
-  // Handle specific PostgreSQL Errors (e.g., Unique constraint violation)
+  // Log full stack trace for unexpected errors
+  console.error('Unhandled Error:', err);
   if (err.code === '23505') {
     return res.status(409).json({
       status: 'error',
