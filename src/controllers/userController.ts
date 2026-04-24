@@ -3,6 +3,13 @@ import pool from '../config/db';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
 
+function fmtPgDate(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return null;
+}
+
 export const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user?.id;
   const { firstName, lastName, email, phone } = req.body;
@@ -73,6 +80,7 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
     const businessResult = await pool.query(
       `SELECT b.id, b.name, b.entity_type, b.industry, b.state, b.email, b.phone, b.is_paid,
               b.website, b.street, b.city, b.zip_code, b.country,
+              b.ein, b.formation_date, b.annual_report_due, b.compliance_status,
               m.mode AS mode_setting, m.custom_labels AS mode_custom_labels
        FROM businesses b
        LEFT JOIN business_mode_settings m ON m.business_id = b.id
@@ -94,7 +102,11 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
         street: b.street,
         city: b.city,
         zipCode: b.zip_code,
-        country: b.country
+        country: b.country,
+        ein: b.ein,
+        formationDate: fmtPgDate(b.formation_date),
+        annualReportDue: fmtPgDate(b.annual_report_due),
+        complianceStatus: b.compliance_status
       };
       const rawLabels = b.mode_custom_labels;
       const customLabels =

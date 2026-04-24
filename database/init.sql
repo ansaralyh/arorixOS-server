@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS businesses (
     
     -- Payment & Subscription Status
     is_paid BOOLEAN DEFAULT FALSE,
+
+    -- Compliance & formation (Phase 1 onboarding — editable in OS)
+    ein VARCHAR(50),
+    formation_date DATE,
+    annual_report_due DATE,
+    compliance_status VARCHAR(100),
     
     deleted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

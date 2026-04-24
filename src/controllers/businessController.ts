@@ -3,6 +3,35 @@ import pool from '../config/db';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
 
+/** Accept YYYY-MM-DD or empty → null for DATE columns */
+function optionalIsoDate(raw: unknown, field: string): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    throw new AppError(`${field} must be a string (YYYY-MM-DD).`, 400);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new AppError(`${field} must use YYYY-MM-DD.`, 400);
+  }
+  const t = Date.parse(`${raw}T12:00:00.000Z`);
+  if (Number.isNaN(t)) {
+    throw new AppError(`${field} is not a valid date.`, 400);
+  }
+  return raw;
+}
+
+function formatRowDates(row: Record<string, unknown>) {
+  const fmt = (v: unknown): string | null => {
+    if (v == null) return null;
+    if (typeof v === 'string') return v.slice(0, 10);
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return null;
+  };
+  return {
+    formationDate: fmt(row.formation_date),
+    annualReportDue: fmt(row.annual_report_due)
+  };
+}
+
 export const updateBusinessInfo = catchAsync(async (req: Request, res: Response) => {
   const businessId = req.user?.businessId;
   const {
@@ -16,7 +45,11 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
     addressLine2,
     website,
     zipCode,
-    country
+    country,
+    ein,
+    formationDate,
+    annualReportDue,
+    complianceStatus
   } = req.body;
 
   if (!businessId) {
@@ -27,7 +60,9 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
     throw new AppError('Please provide a companyName.', 400);
   }
 
-  // Update business in database
+  const formation = optionalIsoDate(formationDate, 'formationDate');
+  const annualDue = optionalIsoDate(annualReportDue, 'annualReportDue');
+
   const result = await pool.query(
     `UPDATE businesses
      SET
@@ -42,9 +77,14 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
        website = $9,
        zip_code = $10,
        country = $11,
+       ein = $12,
+       formation_date = $13::date,
+       annual_report_due = $14::date,
+       compliance_status = $15,
        updated_at = CURRENT_TIMESTAMP
-     WHERE id = $12
-     RETURNING id, name, entity_type, industry, state, email, phone, street, city, website, zip_code, country`,
+     WHERE id = $16
+     RETURNING id, name, entity_type, industry, state, email, phone, street, city, website, zip_code, country,
+               ein, formation_date, annual_report_due, compliance_status`,
     [
       companyName,
       entityType || null,
@@ -57,6 +97,12 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
       website || null,
       zipCode || null,
       country || null,
+      typeof ein === 'string' && ein.trim() ? ein.trim().slice(0, 50) : null,
+      formation,
+      annualDue,
+      typeof complianceStatus === 'string' && complianceStatus.trim()
+        ? complianceStatus.trim().slice(0, 100)
+        : null,
       businessId
     ]
   );
@@ -66,6 +112,7 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
   }
 
   const updatedBusiness = result.rows[0];
+  const dates = formatRowDates(updatedBusiness as Record<string, unknown>);
 
   res.status(200).json({
     status: 'success',
@@ -82,7 +129,11 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
         addressLine2: updatedBusiness.city,
         website: updatedBusiness.website,
         zipCode: updatedBusiness.zip_code,
-        country: updatedBusiness.country
+        country: updatedBusiness.country,
+        ein: updatedBusiness.ein,
+        formationDate: dates.formationDate,
+        annualReportDue: dates.annualReportDue,
+        complianceStatus: updatedBusiness.compliance_status
       }
     }
   });

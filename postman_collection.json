@@ -87,6 +87,35 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Businesses",
+      "item": [
+        {
+          "name": "GET Formation requests (my business)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/businesses/formation-requests",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "formation-requests"]
+            },
+            "description": "Requires JWT. Returns formation_requests for the token's business, newest first."
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "event": [
