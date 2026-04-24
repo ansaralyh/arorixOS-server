@@ -8,7 +8,7 @@ export type MembershipRole = 'OWNER' | 'ADMIN' | 'MANAGER' | 'MEMBER';
 export const requireTeamAdmin = (req: Request, res: Response, next: NextFunction) => {
   const r = req.user?.membershipRole;
   if (r !== 'OWNER' && r !== 'ADMIN') {
-    return next(new AppError('Only owners and admins can manage teammates.', 403));
+    return next(new AppError('Only workspace owners and admins can perform this action.', 403));
   }
   next();
 };

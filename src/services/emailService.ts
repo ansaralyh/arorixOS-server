@@ -165,3 +165,58 @@ export async function sendBusinessEmailVerification(params: BusinessEmailVerific
     throw new Error(message);
   }
 }
+
+export interface SupportStaffNotificationParams {
+  subject: string;
+  text: string;
+}
+
+/**
+ * Sends internal support alerts (new ticket, call request) to SUPPORT_INBOX_EMAIL when Resend is configured.
+ * No-op if SUPPORT_INBOX_EMAIL or RESEND_API_KEY is missing.
+ */
+export async function sendSupportStaffNotification(params: SupportStaffNotificationParams): Promise<void> {
+  const to = process.env.SUPPORT_INBOX_EMAIL?.trim();
+  if (!to || !isEmailConfigured()) {
+    return;
+  }
+
+  const apiKey = process.env.RESEND_API_KEY!.trim();
+  const from =
+    process.env.EMAIL_FROM?.trim() || 'Arorix OS <onboarding@resend.dev>';
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: system-ui, sans-serif; line-height: 1.5; color: #1e293b;">
+  <pre style="white-space: pre-wrap; font-size: 14px;">${escapeHtml(params.text)}</pre>
+</body>
+</html>`.trim();
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: params.subject,
+      html,
+      text: params.text,
+    }),
+  });
+
+  const body = await res.text();
+  if (!res.ok) {
+    let message = `Resend error (${res.status})`;
+    try {
+      const j = JSON.parse(body) as { message?: string };
+      if (j.message) message = j.message;
+    } catch {
+      if (body) message = body.slice(0, 200);
+    }
+    throw new Error(message);
+  }
+}

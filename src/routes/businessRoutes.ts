@@ -18,6 +18,16 @@ import {
   patchBusinessCommunications,
   requestOutboundEmailVerification,
 } from '../controllers/communicationsController';
+import { getBilling, patchBilling, postChangePlan, postPayInvoice } from '../controllers/billingController';
+import {
+  listKbCategories,
+  listKbArticles,
+  getKbArticle,
+  createTicket,
+  listTickets,
+  patchTicket,
+  createCallRequest,
+} from '../controllers/supportController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -35,6 +45,12 @@ router.post('/activity', createActivity);
 router.get('/communications', getBusinessCommunications);
 router.patch('/communications', patchBusinessCommunications);
 router.post('/communications/request-email-verification', requestOutboundEmailVerification);
+
+// Billing ledger (read: any member; writes: owner/admin)
+router.get('/billing', getBilling);
+router.patch('/billing', requireTeamAdmin, patchBilling);
+router.post('/billing/change-plan', requireTeamAdmin, postChangePlan);
+router.post('/billing/pay-invoice', requireTeamAdmin, postPayInvoice);
 
 // Teammates
 router.get('/members', listMembers);
@@ -57,5 +73,14 @@ router.put('/mode-settings', updateBusinessModeSettings);
 // Workspace permission matrix (merged defaults + DB overrides)
 router.get('/role-permissions', requireTeamAdmin, getRolePermissions);
 router.patch('/role-permissions', requireTeamAdmin, patchRolePermissions);
+
+// Support: KB (read), tickets, call requests (no live chat API)
+router.get('/support/kb/categories', listKbCategories);
+router.get('/support/kb/articles', listKbArticles);
+router.get('/support/kb/articles/:slug', getKbArticle);
+router.post('/support/tickets', createTicket);
+router.get('/support/tickets', listTickets);
+router.patch('/support/tickets/:id', requireTeamAdmin, patchTicket);
+router.post('/support/call-requests', createCallRequest);
 
 export default router;

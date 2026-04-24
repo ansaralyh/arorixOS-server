@@ -6,6 +6,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { hashInviteToken } from '../services/authService';
 import { isEmailConfigured, sendWorkspaceInviteEmail } from '../services/emailService';
 import { getActorDisplayName, recordBusinessActivity } from '../services/businessActivityService';
+import { seatCapForPlanTier } from '../constants/billingPlans';
 
 async function tryRecordActivity(
   businessId: string,
@@ -242,6 +243,25 @@ export const createInvitation = catchAsync(async (req: Request, res: Response) =
   );
   if (existingMember.rows.length > 0) {
     throw new AppError('This person is already a member of the workspace.', 409);
+  }
+
+  const bb = await pool.query(`SELECT plan_tier FROM business_billing WHERE business_id = $1`, [businessId]);
+  const cap = seatCapForPlanTier(bb.rows[0]?.plan_tier as string | undefined);
+  if (cap != null) {
+    const occ = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM business_members WHERE business_id = $1) +
+         (SELECT COUNT(*)::int FROM business_invitations WHERE business_id = $1 AND status = 'PENDING')
+       AS n`,
+      [businessId]
+    );
+    const occupied = (occ.rows[0]?.n as number) ?? 0;
+    if (occupied >= cap) {
+      throw new AppError(
+        `This workspace is at its plan limit of ${cap} seats (counting pending invites). Upgrade the plan to invite more teammates.`,
+        403
+      );
+    }
   }
 
   const plainToken = crypto.randomBytes(32).toString('hex');
