@@ -85,12 +85,230 @@
             "description": "Authenticates a user and returns their JWT token and primary business details."
           },
           "response": []
+        },
+        {
+          "name": "Accept team invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{invite_token}}\",\n  \"password\": \"securepassword123\",\n  \"firstName\": \"Sam\",\n  \"lastName\": \"Invited\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/accept-invite",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "accept-invite"]
+            },
+            "description": "Public. Use inviteToken from POST /businesses/invitations. New users need firstName/lastName; existing users omit names and use their password."
+          },
+          "response": []
         }
       ]
     },
     {
       "name": "Businesses",
       "item": [
+        {
+          "name": "GET Members (teammates)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/businesses/members",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "members"]
+            },
+            "description": "Requires JWT with businessId. Verifies business_members row. Lists joined users for the workspace."
+          },
+          "response": []
+        },
+        {
+          "name": "GET Invitations (pending)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/businesses/invitations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "invitations"]
+            },
+            "description": "Requires JWT with businessId. Lists PENDING business_invitations only (no token hashes)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST Invitation (admin/owner)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newmember@example.com\",\n  \"role\": \"MEMBER\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/businesses/invitations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "invitations"]
+            },
+            "description": "OWNER or ADMIN only. Returns inviteToken once — set Postman variable invite_token from response."
+          },
+          "response": []
+        },
+        {
+          "name": "POST Invitation resend",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/businesses/invitations/{{invite_id}}/resend",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "invitations", "{{invite_id}}", "resend"]
+            },
+            "description": "OWNER or ADMIN. Regenerates token and expiry; emails when Resend is configured."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE Invitation (revoke)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/businesses/invitations/{{invite_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "invitations", "{{invite_id}}"]
+            },
+            "description": "OWNER or ADMIN. Revokes a PENDING invite by id."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH Member role",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"MANAGER\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/businesses/members/{{membership_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "members", "{{membership_id}}"]
+            },
+            "description": "OWNER or ADMIN. Cannot change OWNER row. role ∈ ADMIN, MANAGER, MEMBER."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE Member",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/businesses/members/{{membership_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "businesses", "members", "{{membership_id}}"]
+            },
+            "description": "OWNER or ADMIN. Cannot remove OWNER."
+          },
+          "response": []
+        },
         {
           "name": "GET Formation requests (my business)",
           "request": {

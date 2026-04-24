@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS business_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-    role VARCHAR(50) DEFAULT 'MEMBER' CHECK (role IN ('OWNER', 'ADMIN', 'MEMBER')),
+    role VARCHAR(50) DEFAULT 'MEMBER' CHECK (role IN ('OWNER', 'ADMIN', 'MANAGER', 'MEMBER')),
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -143,10 +143,52 @@ CREATE TABLE IF NOT EXISTS business_members (
 CREATE INDEX IF NOT EXISTS idx_business_members_user_id ON business_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_business_members_business_id ON business_members(business_id);
 
+-- At most one OWNER per business
+CREATE UNIQUE INDEX IF NOT EXISTS uq_business_members_one_owner
+  ON business_members (business_id)
+  WHERE role = 'OWNER';
+
+
+-- ==========================================
+-- 3b. BUSINESS_INVITATIONS (teammate invites)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS business_invitations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'MEMBER'
+        CHECK (role IN ('ADMIN', 'MANAGER', 'MEMBER')),
+    invited_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED')),
+    token_hash VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE,
+    accepted_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_invitations_business_pending
+  ON business_invitations (business_id)
+  WHERE status = 'PENDING';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_business_invitations_pending_email
+  ON business_invitations (business_id, lower(email))
+  WHERE status = 'PENDING';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_business_invitations_token_hash
+  ON business_invitations (token_hash);
+
 -- Trigger for updated_at
 DROP TRIGGER IF EXISTS update_business_members_modtime ON business_members;
 CREATE TRIGGER update_business_members_modtime 
     BEFORE UPDATE ON business_members 
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+DROP TRIGGER IF EXISTS update_business_invitations_modtime ON business_invitations;
+CREATE TRIGGER update_business_invitations_modtime
+    BEFORE UPDATE ON business_invitations
     FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
 

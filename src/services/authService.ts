@@ -1,10 +1,182 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import pool from '../config/db';
 import { AppError } from '../middlewares/errorHandler';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me_in_prod';
 const IS_DEV_MODE = process.env.NODE_ENV === 'development';
+
+/** Session payload for a user scoped to one business (JWT + profile shapes used by login). */
+export const getAuthPayloadForUserAndBusiness = async (userId: string, businessId: string) => {
+  const userResult = await pool.query(
+    `SELECT id, email, first_name, last_name, phone FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [userId]
+  );
+  if (userResult.rows.length === 0) {
+    throw new AppError('User not found.', 404);
+  }
+  const u = userResult.rows[0];
+
+  const bResult = await pool.query(
+    `SELECT id, name, is_paid, entity_type, industry, state, email, phone
+     FROM businesses WHERE id = $1 AND deleted_at IS NULL`,
+    [businessId]
+  );
+  if (bResult.rows.length === 0) {
+    throw new AppError('Business not found.', 404);
+  }
+  const b = bResult.rows[0];
+
+  if (!b.is_paid && !IS_DEV_MODE) {
+    throw new AppError('Your account is active, but we are awaiting payment confirmation. Please check your email.', 403);
+  }
+
+  const isPaid = b.is_paid;
+  const token = jwt.sign({ userId, businessId, isPaid }, JWT_SECRET, { expiresIn: '7d' });
+
+  return {
+    token,
+    user: {
+      id: u.id,
+      email: u.email,
+      firstName: u.first_name,
+      lastName: u.last_name,
+      phone: u.phone,
+    },
+    business: {
+      id: b.id,
+      name: b.name,
+      isPaid,
+      entityType: b.entity_type,
+      industry: b.industry,
+      stateOfFormation: b.state,
+      email: b.email,
+      phone: b.phone,
+    },
+  };
+};
+
+export const hashInviteToken = (plainToken: string) =>
+  crypto.createHash('sha256').update(plainToken, 'utf8').digest('hex');
+
+/**
+ * Accept a teammate invite: creates membership for invited business.
+ * New users must provide firstName, lastName, password. Existing users: password only.
+ */
+export const acceptTeamInvite = async (data: {
+  token: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+}) => {
+  const { token: plainToken, password } = data;
+  if (!plainToken || !password) {
+    throw new AppError('Please provide token and password.', 400);
+  }
+
+  const tokenHash = hashInviteToken(plainToken);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const invResult = await client.query(
+      `SELECT id, business_id, email, role, status, expires_at
+       FROM business_invitations
+       WHERE token_hash = $1
+       FOR UPDATE`,
+      [tokenHash]
+    );
+
+    if (invResult.rows.length === 0) {
+      throw new AppError('Invalid or unknown invitation.', 400);
+    }
+
+    const inv = invResult.rows[0];
+    if (inv.status !== 'PENDING') {
+      throw new AppError('This invitation is no longer valid.', 400);
+    }
+    if (new Date(inv.expires_at) <= new Date()) {
+      await client.query(
+        `UPDATE business_invitations SET status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [inv.id]
+      );
+      await client.query('COMMIT');
+      throw new AppError('This invitation has expired.', 400);
+    }
+
+    const businessId = inv.business_id as string;
+    const inviteEmail = String(inv.email).trim().toLowerCase();
+    const memberRole = inv.role as string;
+
+    const existingUser = await client.query(
+      `SELECT id, email, password_hash, first_name, last_name, phone FROM users
+       WHERE lower(trim(email)) = $1 AND deleted_at IS NULL`,
+      [inviteEmail]
+    );
+
+    let userId: string;
+
+    if (existingUser.rows.length > 0) {
+      const u = existingUser.rows[0];
+      const ok = await bcrypt.compare(password, u.password_hash);
+      if (!ok) {
+        throw new AppError('Invalid email or password.', 401);
+      }
+      userId = u.id;
+    } else {
+      const fn = data.firstName?.trim();
+      const ln = data.lastName?.trim();
+      if (!fn || !ln) {
+        throw new AppError('Please provide firstName and lastName to create your account.', 400);
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      const ins = await client.query(
+        `INSERT INTO users (email, password_hash, first_name, last_name, phone)
+         VALUES ($1, $2, $3, $4, NULL)
+         RETURNING id`,
+        [inviteEmail, passwordHash, fn, ln]
+      );
+      userId = ins.rows[0].id;
+    }
+
+    const already = await client.query(
+      `SELECT 1 FROM business_members WHERE user_id = $1 AND business_id = $2`,
+      [userId, businessId]
+    );
+    if (already.rows.length > 0) {
+      await client.query(
+        `UPDATE business_invitations
+         SET status = 'ACCEPTED', accepted_at = CURRENT_TIMESTAMP, accepted_user_id = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [inv.id, userId]
+      );
+      await client.query('COMMIT');
+      return getAuthPayloadForUserAndBusiness(userId, businessId);
+    }
+
+    await client.query(
+      `INSERT INTO business_members (user_id, business_id, role) VALUES ($1, $2, $3)`,
+      [userId, businessId, memberRole]
+    );
+
+    await client.query(
+      `UPDATE business_invitations
+       SET status = 'ACCEPTED', accepted_at = CURRENT_TIMESTAMP, accepted_user_id = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [inv.id, userId]
+    );
+
+    await client.query('COMMIT');
+    return getAuthPayloadForUserAndBusiness(userId, businessId);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
 
 export const registerUser = async (data: any) => {
   const { email, password, firstName, lastName, businessName, phone } = data;
@@ -106,8 +278,6 @@ export const registerUser = async (data: any) => {
     client.release();
   }
 };
-
-import crypto from 'crypto';
 
 export const registerFromFunnel = async (data: any) => {
   const { email, firstName, lastName, businessName } = data;

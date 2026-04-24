@@ -10,7 +10,9 @@ declare global {
     interface Request {
       user?: {
         id: string;
-        businessId: string;
+        businessId: string | null;
+        /** Set by requireBusinessMembership after verifying business_members row */
+        membershipRole?: 'OWNER' | 'ADMIN' | 'MANAGER' | 'MEMBER';
       };
     }
   }
@@ -35,12 +37,12 @@ export const protect = (req: Request, res: Response, next: NextFunction) => {
     }
 
     // 2. Verify token
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; businessId: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; businessId: string | null };
 
     // 3. Attach user info to request object
     req.user = {
       id: decoded.userId,
-      businessId: decoded.businessId,
+      businessId: decoded.businessId ?? null,
     };
 
     next();

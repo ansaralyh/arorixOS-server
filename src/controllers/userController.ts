@@ -72,6 +72,17 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
 
   const user = userResult.rows[0];
 
+  let membershipRole: string | null = null;
+  if (businessId) {
+    const memberResult = await pool.query(
+      `SELECT role FROM business_members WHERE user_id = $1 AND business_id = $2`,
+      [userId, businessId]
+    );
+    if (memberResult.rows.length > 0) {
+      membershipRole = memberResult.rows[0].role;
+    }
+  }
+
   // Get business details
   let business = null;
   let businessMode: { mode: string; customLabels: Record<string, string> } | null = null;
@@ -131,6 +142,7 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
         phone: user.phone
       },
       business,
+      membershipRole,
       businessMode: businessMode ?? { mode: 'contractor', customLabels: {} }
     }
   });

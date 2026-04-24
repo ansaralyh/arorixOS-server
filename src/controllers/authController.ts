@@ -34,6 +34,16 @@ export const login = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+export const acceptInvite = catchAsync(async (req: Request, res: Response) => {
+  const { token, password, firstName, lastName } = req.body;
+  const result = await authService.acceptTeamInvite({ token, password, firstName, lastName });
+
+  res.status(200).json({
+    status: 'success',
+    data: result,
+  });
+});
+
 export const funnelCheckout = catchAsync(async (req: Request, res: Response) => {
   // This endpoint gets hit from the funnel when the user clicks "Pay".
   const { email, firstName, lastName, businessName } = req.body;
