@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import pool from '../config/db';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
+import type { MembershipRoleDb } from '../constants/permissions';
+import { effectivePermissionsForRole } from '../utils/rolePermissions';
 
 function fmtPgDate(v: unknown): string | null {
   if (v == null) return null;
@@ -131,6 +133,20 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
+  let permissions: Record<string, boolean> | null = null;
+  if (businessId && membershipRole) {
+    try {
+      const permResult = await pool.query(
+        `SELECT permissions_by_role FROM business_role_permissions WHERE business_id = $1`,
+        [businessId]
+      );
+      const rawPolicy = permResult.rows[0]?.permissions_by_role;
+      permissions = effectivePermissionsForRole(membershipRole as MembershipRoleDb, rawPolicy);
+    } catch {
+      permissions = effectivePermissionsForRole(membershipRole as MembershipRoleDb, {});
+    }
+  }
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -143,6 +159,7 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
       },
       business,
       membershipRole,
+      permissions,
       businessMode: businessMode ?? { mode: 'contractor', customLabels: {} }
     }
   });

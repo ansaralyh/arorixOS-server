@@ -11,6 +11,7 @@ import {
   updateMemberRole,
   removeMember,
 } from '../controllers/teamController';
+import { getRolePermissions, patchRolePermissions } from '../controllers/rolePermissionsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -37,5 +38,9 @@ router.put('/info', updateBusinessInfo);
 
 // CRM / dashboard terminology (per-tenant)
 router.put('/mode-settings', updateBusinessModeSettings);
+
+// Workspace permission matrix (merged defaults + DB overrides)
+router.get('/role-permissions', requireTeamAdmin, getRolePermissions);
+router.patch('/role-permissions', requireTeamAdmin, patchRolePermissions);
 
 export default router;

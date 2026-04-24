@@ -13,27 +13,56 @@ const pool = new Pool({
   port: parseInt(process.env.POSTGRES_PORT || '5432'),
 });
 
+function logApplied(label: string) {
+  console.log(`✓ Applied successfully: ${label}`);
+}
+
 const runMigration = async () => {
   console.log('Starting database migration...');
   const client = await pool.connect();
-  
-  try {
-    const sqlPath = path.join(__dirname, 'init.sql');
-    const sql = fs.readFileSync(sqlPath, 'utf8');
-    
-    await client.query(sql);
+  const dbRoot = __dirname;
+  const cwd = process.cwd();
 
-    // Manually add the is_paid column if it wasn't added because the table already existed
+  try {
+    const initPath = path.join(dbRoot, 'init.sql');
     try {
-        await client.query('ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT FALSE;');
-        console.log('Ensured is_paid column exists.');
+      await client.query(fs.readFileSync(initPath, 'utf8'));
+      logApplied(path.relative(cwd, initPath));
     } catch (e) {
-        console.log('Could not alter businesses table, might already exist correctly.');
+      console.error(`✗ Failed: ${path.relative(cwd, initPath)}`);
+      throw e;
     }
 
-    console.log('Migration completed successfully! All tables and triggers are set up.');
+    try {
+      await client.query('ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT FALSE;');
+      logApplied('businesses.is_paid (ALTER COLUMN IF NOT EXISTS)');
+    } catch {
+      console.log('⚠ Skipped: businesses.is_paid safeguard (table may be unavailable).');
+    }
+
+    const migrationsDir = path.join(dbRoot, 'migrations');
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs
+        .readdirSync(migrationsDir)
+        .filter((f) => f.endsWith('.sql'))
+        .sort();
+      for (const file of files) {
+        const fullPath = path.join(migrationsDir, file);
+        const rel = path.relative(cwd, fullPath);
+        try {
+          await client.query(fs.readFileSync(fullPath, 'utf8'));
+          logApplied(rel);
+        } catch (e) {
+          console.error(`✗ Failed: ${rel}`);
+          throw e;
+        }
+      }
+    }
+
+    console.log('Migration completed successfully.');
   } catch (error) {
-    console.error('Error running migration:', error);
+    console.error('Migration failed:', error);
+    process.exitCode = 1;
   } finally {
     client.release();
     await pool.end();
