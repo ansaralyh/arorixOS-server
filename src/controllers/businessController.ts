@@ -5,16 +5,18 @@ import { AppError } from '../middlewares/errorHandler';
 
 export const updateBusinessInfo = catchAsync(async (req: Request, res: Response) => {
   const businessId = req.user?.businessId;
-  const { 
-    companyName, 
-    entityType, 
-    industry, 
-    stateOfFormation, 
-    email, 
-    phone, 
-    addressLine1, 
-    addressLine2, 
-    ein 
+  const {
+    companyName,
+    entityType,
+    industry,
+    stateOfFormation,
+    email,
+    phone,
+    addressLine1,
+    addressLine2,
+    website,
+    zipCode,
+    country
   } = req.body;
 
   if (!businessId) {
@@ -27,28 +29,34 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
 
   // Update business in database
   const result = await pool.query(
-    `UPDATE businesses 
-     SET 
-       name = $1, 
-       entity_type = $2, 
-       industry = $3, 
-       state = $4, 
-       email = $5, 
-       phone = $6, 
-       street = $7, 
-       city = $8, 
+    `UPDATE businesses
+     SET
+       name = $1,
+       entity_type = $2,
+       industry = $3,
+       state = $4,
+       email = $5,
+       phone = $6,
+       street = $7,
+       city = $8,
+       website = $9,
+       zip_code = $10,
+       country = $11,
        updated_at = CURRENT_TIMESTAMP
-     WHERE id = $9 
-     RETURNING id, name, entity_type, industry, state, email, phone, street, city`,
+     WHERE id = $12
+     RETURNING id, name, entity_type, industry, state, email, phone, street, city, website, zip_code, country`,
     [
-      companyName, 
-      entityType || null, 
-      industry || null, 
-      stateOfFormation || null, 
-      email || null, 
-      phone || null, 
-      addressLine1 || null, 
-      addressLine2 || null, // Storing addressLine2 in city for now based on current schema
+      companyName,
+      entityType || null,
+      industry || null,
+      stateOfFormation || null,
+      email || null,
+      phone || null,
+      addressLine1 || null,
+      addressLine2 || null,
+      website || null,
+      zipCode || null,
+      country || null,
       businessId
     ]
   );
@@ -71,7 +79,10 @@ export const updateBusinessInfo = catchAsync(async (req: Request, res: Response)
         email: updatedBusiness.email,
         phone: updatedBusiness.phone,
         addressLine1: updatedBusiness.street,
-        addressLine2: updatedBusiness.city
+        addressLine2: updatedBusiness.city,
+        website: updatedBusiness.website,
+        zipCode: updatedBusiness.zip_code,
+        country: updatedBusiness.country
       }
     }
   });

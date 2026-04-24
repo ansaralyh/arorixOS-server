@@ -67,9 +67,16 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
 
   // Get business details
   let business = null;
+  let businessMode: { mode: string; customLabels: Record<string, string> } | null = null;
+
   if (businessId) {
     const businessResult = await pool.query(
-      'SELECT id, name, entity_type, industry, state, email, phone, is_paid FROM businesses WHERE id = $1 AND deleted_at IS NULL',
+      `SELECT b.id, b.name, b.entity_type, b.industry, b.state, b.email, b.phone, b.is_paid,
+              b.website, b.street, b.city, b.zip_code, b.country,
+              m.mode AS mode_setting, m.custom_labels AS mode_custom_labels
+       FROM businesses b
+       LEFT JOIN business_mode_settings m ON m.business_id = b.id
+       WHERE b.id = $1 AND b.deleted_at IS NULL`,
       [businessId]
     );
     if (businessResult.rows.length > 0) {
@@ -82,7 +89,21 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
         stateOfFormation: b.state,
         email: b.email,
         phone: b.phone,
-        isPaid: b.is_paid
+        isPaid: b.is_paid,
+        website: b.website,
+        street: b.street,
+        city: b.city,
+        zipCode: b.zip_code,
+        country: b.country
+      };
+      const rawLabels = b.mode_custom_labels;
+      const customLabels =
+        rawLabels && typeof rawLabels === 'object' && !Array.isArray(rawLabels)
+          ? (rawLabels as Record<string, string>)
+          : {};
+      businessMode = {
+        mode: typeof b.mode_setting === 'string' ? b.mode_setting : 'contractor',
+        customLabels
       };
     }
   }
@@ -97,7 +118,8 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
         lastName: user.last_name,
         phone: user.phone
       },
-      business
+      business,
+      businessMode: businessMode ?? { mode: 'contractor', customLabels: {} }
     }
   });
 });
