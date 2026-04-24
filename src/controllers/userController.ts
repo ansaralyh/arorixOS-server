@@ -1,9 +1,29 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcrypt';
 import pool from '../config/db';
 import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
 import type { MembershipRoleDb } from '../constants/permissions';
 import { effectivePermissionsForRole } from '../utils/rolePermissions';
+
+const DEFAULT_PREFERENCES = {
+  emailNotifications: true,
+  smsNotifications: false,
+  marketingEmails: true,
+  darkMode: false,
+  twoFactorEnabled: false,
+};
+
+function mapPreferencesRow(row: Record<string, unknown> | undefined) {
+  if (!row) return { ...DEFAULT_PREFERENCES };
+  return {
+    emailNotifications: Boolean(row.email_notifications),
+    smsNotifications: Boolean(row.sms_notifications),
+    marketingEmails: Boolean(row.marketing_emails),
+    darkMode: Boolean(row.dark_mode),
+    twoFactorEnabled: Boolean(row.two_factor_enabled),
+  };
+}
 
 function fmtPgDate(v: unknown): string | null {
   if (v == null) return null;
@@ -73,6 +93,20 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
   }
 
   const user = userResult.rows[0];
+
+  let preferences = { ...DEFAULT_PREFERENCES };
+  try {
+    const prefRes = await pool.query(
+      `SELECT email_notifications, sms_notifications, marketing_emails, dark_mode, two_factor_enabled
+       FROM user_preferences WHERE user_id = $1`,
+      [userId]
+    );
+    if (prefRes.rows.length > 0) {
+      preferences = mapPreferencesRow(prefRes.rows[0] as Record<string, unknown>);
+    }
+  } catch {
+    /* table may not exist on very old DBs */
+  }
 
   let membershipRole: string | null = null;
   if (businessId) {
@@ -160,7 +194,115 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
       business,
       membershipRole,
       permissions,
+      preferences,
       businessMode: businessMode ?? { mode: 'contractor', customLabels: {} }
     }
+  });
+});
+
+/**
+ * PUT /api/users/password
+ * Body: { currentPassword, newPassword }
+ */
+export const changePassword = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const currentPassword = req.body?.currentPassword;
+  const newPassword = req.body?.newPassword;
+
+  if (!userId) {
+    throw new AppError('User not authenticated.', 401);
+  }
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    throw new AppError('currentPassword and newPassword are required.', 400);
+  }
+  if (newPassword.length < 8) {
+    throw new AppError('New password must be at least 8 characters.', 400);
+  }
+
+  const found = await pool.query(
+    `SELECT password_hash FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [userId]
+  );
+  if (found.rows.length === 0) {
+    throw new AppError('User not found.', 404);
+  }
+
+  const match = await bcrypt.compare(currentPassword, found.rows[0].password_hash);
+  if (!match) {
+    throw new AppError('Current password is incorrect.', 401);
+  }
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+    [hash, userId]
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Password updated successfully.',
+  });
+});
+
+/**
+ * PATCH /api/users/preferences
+ * Body: partial { emailNotifications?, smsNotifications?, marketingEmails?, darkMode?, twoFactorEnabled? }
+ */
+export const patchUserPreferences = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new AppError('User not authenticated.', 401);
+  }
+
+  const b = req.body ?? {};
+  const colMap: Record<string, string> = {
+    emailNotifications: 'email_notifications',
+    smsNotifications: 'sms_notifications',
+    marketingEmails: 'marketing_emails',
+    darkMode: 'dark_mode',
+    twoFactorEnabled: 'two_factor_enabled',
+  };
+
+  const updates: string[] = [];
+  const vals: unknown[] = [];
+  let idx = 1;
+
+  for (const [camel, col] of Object.entries(colMap)) {
+    if (camel in b && typeof (b as Record<string, unknown>)[camel] === 'boolean') {
+      updates.push(`${col} = $${idx}`);
+      idx += 1;
+      vals.push((b as Record<string, unknown>)[camel]);
+    }
+  }
+
+  if (updates.length === 0) {
+    throw new AppError(
+      'Provide at least one boolean field: emailNotifications, smsNotifications, marketingEmails, darkMode, twoFactorEnabled.',
+      400
+    );
+  }
+
+  await pool.query(
+    `INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+    [userId]
+  );
+
+  vals.push(userId);
+  await pool.query(
+    `UPDATE user_preferences SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE user_id = $${idx}`,
+    vals
+  );
+
+  const prefRes = await pool.query(
+    `SELECT email_notifications, sms_notifications, marketing_emails, dark_mode, two_factor_enabled
+     FROM user_preferences WHERE user_id = $1`,
+    [userId]
+  );
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      preferences: mapPreferencesRow(prefRes.rows[0] as Record<string, unknown>),
+    },
   });
 });

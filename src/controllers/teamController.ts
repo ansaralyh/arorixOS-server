@@ -5,6 +5,31 @@ import { catchAsync } from '../utils/catchAsync';
 import { AppError } from '../middlewares/errorHandler';
 import { hashInviteToken } from '../services/authService';
 import { isEmailConfigured, sendWorkspaceInviteEmail } from '../services/emailService';
+import { getActorDisplayName, recordBusinessActivity } from '../services/businessActivityService';
+
+async function tryRecordActivity(
+  businessId: string,
+  actorUserId: string,
+  actorLabel: string,
+  action: string,
+  category: string,
+  itemTitle: string,
+  details?: string | null
+) {
+  try {
+    await recordBusinessActivity({
+      businessId,
+      actorUserId,
+      actorLabel,
+      action,
+      category,
+      itemTitle,
+      details: details ?? null,
+    });
+  } catch (err) {
+    console.error('[businessActivity]', err);
+  }
+}
 
 const INVITE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER'] as const;
 const MEMBER_PATCH_ROLES = ['ADMIN', 'MANAGER', 'MEMBER'] as const;
@@ -240,6 +265,17 @@ export const createInvitation = catchAsync(async (req: Request, res: Response) =
     invitedByUserId
   );
 
+  const inviterLabel = await getActorDisplayName(invitedByUserId);
+  void tryRecordActivity(
+    businessId,
+    invitedByUserId,
+    inviterLabel,
+    'added',
+    'Teammates',
+    `Invite sent to ${email}`,
+    `Role: ${role}`
+  );
+
   res.status(201).json({
     status: 'success',
     data: {
@@ -262,6 +298,7 @@ export const createInvitation = catchAsync(async (req: Request, res: Response) =
  */
 export const revokeInvitation = catchAsync(async (req: Request, res: Response) => {
   const businessId = req.user?.businessId;
+  const actorUserId = req.user?.id;
   const id = pathParamId(req.params.id);
   if (!businessId) {
     throw new AppError('Business not found on session.', 403);
@@ -274,12 +311,26 @@ export const revokeInvitation = catchAsync(async (req: Request, res: Response) =
     `UPDATE business_invitations
      SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP
      WHERE id = $1 AND business_id = $2 AND status = 'PENDING'
-     RETURNING id`,
+     RETURNING id, email`,
     [id, businessId]
   );
 
   if (result.rows.length === 0) {
     throw new AppError('Pending invitation not found.', 404);
+  }
+
+  if (actorUserId) {
+    const actorLabel = await getActorDisplayName(actorUserId);
+    const email = result.rows[0].email as string;
+    void tryRecordActivity(
+      businessId,
+      actorUserId,
+      actorLabel,
+      'deleted',
+      'Teammates',
+      `Revoked invite for ${email}`,
+      null
+    );
   }
 
   res.status(200).json({ status: 'success', data: { revokedId: result.rows[0].id } });
@@ -335,6 +386,17 @@ export const resendInvitation = catchAsync(async (req: Request, res: Response) =
     actorUserId
   );
 
+  const actorLabel = await getActorDisplayName(actorUserId);
+  void tryRecordActivity(
+    businessId,
+    actorUserId,
+    actorLabel,
+    'synced',
+    'Teammates',
+    `Invite resent to ${row.email as string}`,
+    `Role: ${row.role as string}`
+  );
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -373,7 +435,10 @@ export const updateMemberRole = catchAsync(async (req: Request, res: Response) =
   const newRole = newRoleUpper as (typeof MEMBER_PATCH_ROLES)[number];
 
   const cur = await pool.query(
-    `SELECT id, role FROM business_members WHERE id = $1 AND business_id = $2`,
+    `SELECT bm.id, bm.role, u.email, u.first_name, u.last_name
+     FROM business_members bm
+     INNER JOIN users u ON u.id = bm.user_id
+     WHERE bm.id = $1 AND bm.business_id = $2`,
     [membershipId, businessId]
   );
   if (cur.rows.length === 0) {
@@ -383,12 +448,33 @@ export const updateMemberRole = catchAsync(async (req: Request, res: Response) =
     throw new AppError('Cannot change the workspace owner role here.', 403);
   }
 
+  const oldRole = cur.rows[0].role as string;
+  const contact = cur.rows[0];
+  const display =
+    [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim() ||
+    contact.email ||
+    'Member';
+
   const updated = await pool.query(
     `UPDATE business_members SET role = $1, updated_at = CURRENT_TIMESTAMP
      WHERE id = $2 AND business_id = $3
      RETURNING id, user_id, role`,
     [newRole, membershipId, businessId]
   );
+
+  const actorUserId = req.user?.id;
+  if (actorUserId) {
+    const actorLabel = await getActorDisplayName(actorUserId);
+    void tryRecordActivity(
+      businessId,
+      actorUserId,
+      actorLabel,
+      'edited',
+      'Teammates',
+      `${display} — role updated`,
+      `${oldRole} → ${newRole}`
+    );
+  }
 
   res.status(200).json({
     status: 'success',
@@ -415,7 +501,10 @@ export const removeMember = catchAsync(async (req: Request, res: Response) => {
   }
 
   const cur = await pool.query(
-    `SELECT id, role FROM business_members WHERE id = $1 AND business_id = $2`,
+    `SELECT bm.id, bm.role, u.email, u.first_name, u.last_name
+     FROM business_members bm
+     INNER JOIN users u ON u.id = bm.user_id
+     WHERE bm.id = $1 AND bm.business_id = $2`,
     [membershipId, businessId]
   );
   if (cur.rows.length === 0) {
@@ -425,10 +514,30 @@ export const removeMember = catchAsync(async (req: Request, res: Response) => {
     throw new AppError('Cannot remove the workspace owner.', 403);
   }
 
+  const contact = cur.rows[0];
+  const display =
+    [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim() ||
+    contact.email ||
+    'Member';
+
   await pool.query(`DELETE FROM business_members WHERE id = $1 AND business_id = $2`, [
     membershipId,
     businessId,
   ]);
+
+  const actorUserId = req.user?.id;
+  if (actorUserId) {
+    const actorLabel = await getActorDisplayName(actorUserId);
+    void tryRecordActivity(
+      businessId,
+      actorUserId,
+      actorLabel,
+      'deleted',
+      'Teammates',
+      `Removed ${display} from workspace`,
+      null
+    );
+  }
 
   res.status(204).send();
 });

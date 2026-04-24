@@ -12,6 +12,12 @@ import {
   removeMember,
 } from '../controllers/teamController';
 import { getRolePermissions, patchRolePermissions } from '../controllers/rolePermissionsController';
+import { listActivity, createActivity } from '../controllers/businessActivityController';
+import {
+  getBusinessCommunications,
+  patchBusinessCommunications,
+  requestOutboundEmailVerification,
+} from '../controllers/communicationsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -20,6 +26,15 @@ const router = express.Router();
 // Protected Routes (Requires a valid JWT token)
 router.use(protect);
 router.use(requireBusinessMembership);
+
+// Company Activity (read/write for any workspace member)
+router.get('/activity', listActivity);
+router.post('/activity', createActivity);
+
+// Communications (outbound email verification via Resend, SMS display)
+router.get('/communications', getBusinessCommunications);
+router.patch('/communications', patchBusinessCommunications);
+router.post('/communications/request-email-verification', requestOutboundEmailVerification);
 
 // Teammates
 router.get('/members', listMembers);

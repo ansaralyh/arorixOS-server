@@ -44,6 +44,43 @@ CREATE TRIGGER update_users_modtime
 
 
 -- ==========================================
+-- 1b. USER_PREFERENCES (account settings: notifications, theme flags)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+    sms_notifications BOOLEAN NOT NULL DEFAULT FALSE,
+    marketing_emails BOOLEAN NOT NULL DEFAULT TRUE,
+    dark_mode BOOLEAN NOT NULL DEFAULT FALSE,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+DROP TRIGGER IF EXISTS update_user_preferences_modtime ON user_preferences;
+CREATE TRIGGER update_user_preferences_modtime
+    BEFORE UPDATE ON user_preferences
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE OR REPLACE FUNCTION seed_user_preferences_row()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO user_preferences (user_id) VALUES (NEW.id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_seed_user_preferences ON users;
+CREATE TRIGGER trg_seed_user_preferences
+    AFTER INSERT ON users
+    FOR EACH ROW EXECUTE FUNCTION seed_user_preferences_row();
+
+INSERT INTO user_preferences (user_id)
+SELECT id FROM users WHERE deleted_at IS NULL
+ON CONFLICT (user_id) DO NOTHING;
+
+
+-- ==========================================
 -- 2. BUSINESSES TABLE (Tenants)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS businesses (
@@ -155,6 +192,68 @@ CREATE TRIGGER trg_seed_business_role_permissions
     FOR EACH ROW EXECUTE FUNCTION seed_business_role_permissions_row();
 
 INSERT INTO business_role_permissions (business_id)
+SELECT id FROM businesses
+ON CONFLICT (business_id) DO NOTHING;
+
+
+-- ==========================================
+-- 2d. BUSINESS_ACTIVITY_EVENTS (Company Activity feed)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS business_activity_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    actor_label VARCHAR(255),
+    action VARCHAR(32) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    item_title TEXT NOT NULL,
+    details TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(metadata) = 'object'),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_activity_events_business_created
+    ON business_activity_events (business_id, created_at DESC, id DESC);
+
+
+-- ==========================================
+-- 2e. BUSINESS_COMMUNICATIONS (verified outbound email via Resend, SMS display)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS business_communications (
+    business_id UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+    outbound_email VARCHAR(255),
+    outbound_email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    verification_token_hash VARCHAR(64),
+    verification_expires_at TIMESTAMPTZ,
+    sms_phone VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+DROP TRIGGER IF EXISTS update_business_communications_modtime ON business_communications;
+CREATE TRIGGER update_business_communications_modtime
+    BEFORE UPDATE ON business_communications
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_business_communications_verification_token
+    ON business_communications (verification_token_hash)
+    WHERE verification_token_hash IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION seed_business_communications_row()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO business_communications (business_id) VALUES (NEW.id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_seed_business_communications ON businesses;
+CREATE TRIGGER trg_seed_business_communications
+    AFTER INSERT ON businesses
+    FOR EACH ROW EXECUTE FUNCTION seed_business_communications_row();
+
+INSERT INTO business_communications (business_id)
 SELECT id FROM businesses
 ON CONFLICT (business_id) DO NOTHING;
 

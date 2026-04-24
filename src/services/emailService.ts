@@ -96,3 +96,72 @@ export async function sendWorkspaceInviteEmail(params: WorkspaceInviteEmailParam
     throw new Error(message);
   }
 }
+
+export interface BusinessEmailVerificationParams {
+  to: string;
+  workspaceName: string;
+  verifyUrl: string;
+}
+
+/**
+ * Sends a link to verify outbound / business email for Communications settings.
+ */
+export async function sendBusinessEmailVerification(params: BusinessEmailVerificationParams): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+
+  const from =
+    process.env.EMAIL_FROM?.trim() || 'Arorix OS <onboarding@resend.dev>';
+
+  const safeName = escapeHtml(params.workspaceName);
+  const subject = `Verify your business email for ${params.workspaceName}`;
+
+  const text = [
+    `Confirm this address for customer-facing email in Arorix OS (${params.workspaceName}):`,
+    '',
+    params.verifyUrl,
+    '',
+    'This link expires in 24 hours. If you did not request this, ignore this email.',
+  ].join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: system-ui, sans-serif; line-height: 1.5; color: #1e293b;">
+  <p>Confirm <strong>${safeName}</strong> business email for Arorix OS customer messages.</p>
+  <p>
+    <a href="${params.verifyUrl}" style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Verify email</a>
+  </p>
+  <p style="font-size: 13px; color: #64748b;">Link expires in 24 hours.</p>
+</body>
+</html>`.trim();
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [params.to],
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  const body = await res.text();
+  if (!res.ok) {
+    let message = `Resend error (${res.status})`;
+    try {
+      const j = JSON.parse(body) as { message?: string };
+      if (j.message) message = j.message;
+    } catch {
+      if (body) message = body.slice(0, 200);
+    }
+    throw new Error(message);
+  }
+}
