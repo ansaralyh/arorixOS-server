@@ -15,6 +15,7 @@ import {
   firstMissingForStageEntry,
   firstMissingRequiredCrmField,
   fetchCrmConfigPartsForBusiness,
+  upsertCrmCustomerForLead,
 } from '../utils/crmLeadRequiredFields';
 function formatEnteredOn(d: Date) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -486,7 +487,8 @@ export const createCrmLead = catchAsync(async (req: Request, res: Response) => {
       urgency,
     ]
   );
-  const newId = ins.rows[0].id;
+  const newId = ins.rows[0].id as string;
+  await upsertCrmCustomerForLead(businessId, newId, stageKey);
   const r = await pool.query(
     `SELECT l.id, l.business_id, l.pipeline_id, l.stage_key, l.name, l.email, l.phone, l.company, l.source, l.notes,
             l.owner_user_id, l.tags, l.account_type, l.urgency, l.last_campaign_touched_at, l.last_campaign_name,
@@ -671,6 +673,8 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
     `UPDATE crm_leads SET ${sets.join(', ')} WHERE id = $${w1}::uuid AND business_id = $${w2}`,
     vals
   );
+
+  await upsertCrmCustomerForLead(businessId, leadId, mStage);
 
   const r = await pool.query(
     `SELECT l.id, l.business_id, l.pipeline_id, l.stage_key, l.name, l.email, l.phone, l.company, l.source, l.notes,

@@ -176,6 +176,46 @@ export async function fetchCrmFieldRowsForBusiness(businessId: string): Promise<
   return fieldRows;
 }
 
+/** Default: seed pipeline uses `sold` as the closed-won column (see crmPipelineController DEFAULT_STAGES). */
+export const DEFAULT_CUSTOMER_STAGE_KEYS = ['sold'];
+
+/**
+ * `crm_config.customerStageKeys` — stage_key values that count as “customer” for `crm_customers` upsert.
+ */
+export function parseCustomerStageKeys(crmConfig: unknown): string[] {
+  if (crmConfig == null || typeof crmConfig !== 'object' || Array.isArray(crmConfig)) {
+    return DEFAULT_CUSTOMER_STAGE_KEYS;
+  }
+  const raw = (crmConfig as { customerStageKeys?: unknown }).customerStageKeys;
+  if (!Array.isArray(raw)) return DEFAULT_CUSTOMER_STAGE_KEYS;
+  const keys = raw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean);
+  return keys.length > 0 ? keys : DEFAULT_CUSTOMER_STAGE_KEYS;
+}
+
+export async function getCustomerStageKeysForBusiness(businessId: string): Promise<string[]> {
+  const r = await pool.query(`SELECT crm_config FROM business_crm_settings WHERE business_id = $1`, [
+    businessId,
+  ]);
+  if (!r.rows[0]) return DEFAULT_CUSTOMER_STAGE_KEYS;
+  return parseCustomerStageKeys((r.rows[0] as { crm_config: unknown }).crm_config);
+}
+
+/**
+ * When a lead’s stage is one of the configured customer stages, ensure a `crm_customers` row exists.
+ */
+export async function upsertCrmCustomerForLead(
+  businessId: string,
+  leadId: string,
+  stageKey: string
+): Promise<void> {
+  const keys = await getCustomerStageKeysForBusiness(businessId);
+  if (!keys.includes(stageKey)) return;
+  await pool.query(
+    `INSERT INTO crm_customers (lead_id, business_id) VALUES ($1::uuid, $2) ON CONFLICT (lead_id) DO NOTHING`,
+    [leadId, businessId]
+  );
+}
+
 /**
  * When lead enters `targetStage`, each enabled mappable field in the rule must be non-empty in `snapshot`.
  */

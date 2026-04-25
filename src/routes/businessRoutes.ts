@@ -58,6 +58,8 @@ import {
   getCrmLeadInvoices,
   putCrmLeadInvoices,
 } from '../controllers/crmLeadFinancialsController';
+import { getCrmLeadJobs, putCrmLeadJobs } from '../controllers/crmLeadJobsController';
+import { getCrmCustomersFilterMeta, listCrmCustomers } from '../controllers/crmCustomersController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -115,6 +117,10 @@ router.put('/crm/pipelines/:pipelineId/stages', putCrmPipelineStages);
 router.get('/crm/settings', getCrmSettings);
 router.put('/crm/settings', requireTeamAdmin, putCrmSettings);
 
+// CRM — customers (derived from crm_customers + lead rollups; static path before :leadId)
+router.get('/crm/customers/filters', getCrmCustomersFilterMeta);
+router.get('/crm/customers', listCrmCustomers);
+
 // CRM — leads (static paths before :leadId)
 router.get('/crm/leads/filters', getCrmLeadsFilterMeta);
 router.get('/crm/leads', listCrmLeads);
@@ -122,6 +128,8 @@ router.get('/crm/leads/:leadId/estimates', getCrmLeadEstimates);
 router.put('/crm/leads/:leadId/estimates', putCrmLeadEstimates);
 router.get('/crm/leads/:leadId/invoices', getCrmLeadInvoices);
 router.put('/crm/leads/:leadId/invoices', putCrmLeadInvoices);
+router.get('/crm/leads/:leadId/jobs', getCrmLeadJobs);
+router.put('/crm/leads/:leadId/jobs', putCrmLeadJobs);
 router.get('/crm/leads/:leadId', getCrmLead);
 router.post('/crm/leads', createCrmLead);
 router.patch('/crm/leads/:leadId', patchCrmLead);
