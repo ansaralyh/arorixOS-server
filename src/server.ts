@@ -14,7 +14,8 @@ process.on('uncaughtException', (err: Error) => {
   process.exit(1);
 });
 
-const PORT = process.env.PORT || 5001;
+// Keep default aligned with Vite + arorixOS `api` base (http://localhost:5000/api).
+const PORT = process.env.PORT || 5000;
 
 // Application entry point (starts the server, connects to DB)
 const startServer = async () => {

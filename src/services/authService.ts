@@ -61,6 +61,18 @@ export const hashInviteToken = (plainToken: string) =>
   crypto.createHash('sha256').update(plainToken, 'utf8').digest('hex');
 
 /**
+ * Invites are generated as 64-char hex (lowercase). Hashing is case-sensitive, so
+ * normalize pasted/URL tokens (uppercase, zero-width chars, bidi) before lookup.
+ */
+function normalizeInviteTokenPlain(raw: string): string {
+  const stripped = raw.replace(/[\u200B-\u200D\uFEFF\u202A-\u202E]/g, '').trim();
+  if (/^[a-f0-9]{64}$/i.test(stripped)) {
+    return stripped.toLowerCase();
+  }
+  return stripped;
+}
+
+/**
  * Accept a teammate invite: creates membership for invited business.
  * New users must provide firstName, lastName, password. Existing users: password only.
  */
@@ -70,11 +82,12 @@ export const acceptTeamInvite = async (data: {
   firstName?: string;
   lastName?: string;
 }) => {
-  const { token: plainToken, password } = data;
-  if (!plainToken || !password) {
+  const { token: rawToken, password } = data;
+  if (!rawToken || !password) {
     throw new AppError('Please provide token and password.', 400);
   }
 
+  const plainToken = normalizeInviteTokenPlain(rawToken);
   const tokenHash = hashInviteToken(plainToken);
 
   const client = await pool.connect();

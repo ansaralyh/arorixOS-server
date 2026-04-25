@@ -11,6 +11,10 @@ import {
   assertLeadRowScope,
   canViewAllLeads,
 } from '../utils/crmAccess';
+import {
+  fetchCrmFieldRowsForBusiness,
+  firstMissingRequiredCrmField,
+} from '../utils/crmLeadRequiredFields';
 function formatEnteredOn(d: Date) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -70,6 +74,22 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function looksLikeUuid(s: string) {
   return UUID_RE.test(String(s).trim());
+}
+
+/** @throws AppError if id is not a workspace member (so we never “succeed” with a stale owner). */
+async function assertUserIsBusinessMember(businessId: string, userIdRaw: string): Promise<string> {
+  const userId = String(userIdRaw).trim();
+  if (!looksLikeUuid(userId)) {
+    throw new AppError('ownerUserId must be a valid user id.', 400);
+  }
+  const check = await pool.query(
+    `SELECT user_id FROM business_members WHERE business_id = $1 AND user_id = $2::uuid`,
+    [businessId, userId]
+  );
+  if (!check.rows[0]) {
+    throw new AppError('That user is not a member of this workspace.', 400);
+  }
+  return userId;
 }
 
 async function getDefaultPipelineIdForBusiness(businessId: string): Promise<string> {
@@ -410,14 +430,32 @@ export const createCrmLead = catchAsync(async (req: Request, res: Response) => {
       ? body.urgency
       : null;
   const tags: string[] = Array.isArray(body.tags) ? body.tags.map((t: unknown) => String(t)) : [];
+  const hasOwnerKey = Object.prototype.hasOwnProperty.call(body, 'ownerUserId');
   const ownerUserIdFromBody = body.ownerUserId;
   let ownerUserId: string | null = userId;
-  if (ownerUserIdFromBody && typeof ownerUserIdFromBody === 'string' && canViewAllLeads(perms)) {
-    const check = await pool.query(
-      `SELECT user_id FROM business_members WHERE business_id = $1 AND user_id = $2::uuid`,
-      [businessId, ownerUserIdFromBody]
-    );
-    if (check.rows[0]) ownerUserId = ownerUserIdFromBody;
+  if (canViewAllLeads(perms) && hasOwnerKey) {
+    if (ownerUserIdFromBody === null || (typeof ownerUserIdFromBody === 'string' && !String(ownerUserIdFromBody).trim())) {
+      ownerUserId = null;
+    } else if (typeof ownerUserIdFromBody === 'string') {
+      ownerUserId = await assertUserIsBusinessMember(businessId, ownerUserIdFromBody);
+    }
+  }
+
+  const crmFieldRows = await fetchCrmFieldRowsForBusiness(businessId);
+  const createMissing = firstMissingRequiredCrmField(crmFieldRows, {
+    name,
+    email: typeof email === 'string' ? email : '',
+    phone: typeof phone === 'string' ? phone : '',
+    company: typeof company === 'string' ? company : '',
+    source: typeof source === 'string' ? source : '',
+    notes: typeof notes === 'string' ? notes : '',
+    stage: stageKey,
+    accountType,
+    urgency,
+    ownerUserId,
+  });
+  if (createMissing) {
+    throw new AppError(`${createMissing} is required.`, 400);
   }
 
   const ins = await pool.query(
@@ -486,6 +524,61 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
   assertLeadRowScope(perms, userId, cur.owner_user_id);
 
   const body = req.body || {};
+
+  const mName = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : cur.name;
+  const mEmail = typeof body.email === 'string' ? body.email : cur.email;
+  const mPhone = typeof body.phone === 'string' ? body.phone : cur.phone;
+  const mCompany = typeof body.company === 'string' ? body.company : cur.company;
+  const mSource = typeof body.source === 'string' ? body.source : cur.source;
+  const mNotes = typeof body.notes === 'string' ? body.notes : cur.notes;
+  let mStage = cur.stage_key;
+  if (body.stage != null) {
+    const sk = String(body.stage).trim();
+    if (sk) {
+      await assertStageInPipeline(businessId, cur.pipeline_id, sk);
+      mStage = sk;
+    }
+  }
+  let mAccount: 'personal' | 'commercial' =
+    cur.account_type === 'commercial' ? 'commercial' : 'personal';
+  if (body.accountType === 'personal' || body.accountType === 'commercial') {
+    mAccount = body.accountType;
+  }
+  let mUrgency: string | null = cur.urgency;
+  if (body.urgency === 'low' || body.urgency === 'medium' || body.urgency === 'high' || body.urgency === null) {
+    mUrgency = body.urgency;
+  }
+  let mOwner: string | null = cur.owner_user_id;
+  /** When not `unchanged`, DB `owner_user_id` will be set to this value (validated). */
+  let ownerUserIdForPatch: string | null | 'unchanged' = 'unchanged';
+  if (body.ownerUserId !== undefined && canViewAllLeads(perms)) {
+    if (body.ownerUserId === null || (typeof body.ownerUserId === 'string' && !String(body.ownerUserId).trim())) {
+      mOwner = null;
+      ownerUserIdForPatch = null;
+    } else if (typeof body.ownerUserId === 'string') {
+      const resolved = await assertUserIsBusinessMember(businessId, body.ownerUserId);
+      mOwner = resolved;
+      ownerUserIdForPatch = resolved;
+    }
+  }
+
+  const crmFieldRowsPatch = await fetchCrmFieldRowsForBusiness(businessId);
+  const patchMissing = firstMissingRequiredCrmField(crmFieldRowsPatch, {
+    name: mName,
+    email: mEmail,
+    phone: mPhone,
+    company: mCompany,
+    source: mSource,
+    notes: mNotes,
+    stage: mStage,
+    accountType: mAccount,
+    urgency: mUrgency,
+    ownerUserId: mOwner,
+  });
+  if (patchMissing) {
+    throw new AppError(`${patchMissing} is required.`, 400);
+  }
+
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const vals: unknown[] = [];
   let n = 1;
@@ -517,7 +610,6 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
   if (body.stage != null) {
     const sk = String(body.stage).trim();
     if (sk) {
-      await assertStageInPipeline(businessId, cur.pipeline_id, sk);
       sets.push(`stage_key = $${n++}`);
       vals.push(sk);
     }
@@ -535,18 +627,12 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
     sets.push(`tags = $${n++}::jsonb`);
     vals.push(mapTagsToJson(tags));
   }
-  if (body.ownerUserId !== undefined && canViewAllLeads(perms)) {
-    if (body.ownerUserId === null) {
+  if (ownerUserIdForPatch !== 'unchanged') {
+    if (ownerUserIdForPatch === null) {
       sets.push(`owner_user_id = NULL`);
-    } else if (typeof body.ownerUserId === 'string') {
-      const check = await pool.query(
-        `SELECT user_id FROM business_members WHERE business_id = $1 AND user_id = $2::uuid`,
-        [businessId, body.ownerUserId]
-      );
-      if (check.rows[0]) {
-        sets.push(`owner_user_id = $${n++}::uuid`);
-        vals.push(body.ownerUserId);
-      }
+    } else {
+      sets.push(`owner_user_id = $${n++}::uuid`);
+      vals.push(ownerUserIdForPatch);
     }
   }
   if (body.pipelineId !== undefined && canViewAllLeads(perms) && typeof body.pipelineId === 'string') {

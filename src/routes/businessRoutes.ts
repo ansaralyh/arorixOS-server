@@ -51,6 +51,7 @@ import {
   listCrmLeadConversations,
   createCrmLeadConversation,
 } from '../controllers/crmLeadThreadController';
+import { getCrmSettings, putCrmSettings } from '../controllers/crmSettingsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -103,6 +104,10 @@ router.post('/crm/pipelines', createCrmPipeline);
 router.patch('/crm/pipelines/:pipelineId', patchCrmPipeline);
 router.delete('/crm/pipelines/:pipelineId', deleteCrmPipeline);
 router.put('/crm/pipelines/:pipelineId/stages', putCrmPipelineStages);
+
+// CRM — settings (versioned JSON; static path before :leadId)
+router.get('/crm/settings', getCrmSettings);
+router.put('/crm/settings', requireTeamAdmin, putCrmSettings);
 
 // CRM — leads (static paths before :leadId)
 router.get('/crm/leads/filters', getCrmLeadsFilterMeta);
