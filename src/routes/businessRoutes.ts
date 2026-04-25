@@ -52,6 +52,12 @@ import {
   createCrmLeadConversation,
 } from '../controllers/crmLeadThreadController';
 import { getCrmSettings, putCrmSettings } from '../controllers/crmSettingsController';
+import {
+  getCrmLeadEstimates,
+  putCrmLeadEstimates,
+  getCrmLeadInvoices,
+  putCrmLeadInvoices,
+} from '../controllers/crmLeadFinancialsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -112,6 +118,10 @@ router.put('/crm/settings', requireTeamAdmin, putCrmSettings);
 // CRM — leads (static paths before :leadId)
 router.get('/crm/leads/filters', getCrmLeadsFilterMeta);
 router.get('/crm/leads', listCrmLeads);
+router.get('/crm/leads/:leadId/estimates', getCrmLeadEstimates);
+router.put('/crm/leads/:leadId/estimates', putCrmLeadEstimates);
+router.get('/crm/leads/:leadId/invoices', getCrmLeadInvoices);
+router.put('/crm/leads/:leadId/invoices', putCrmLeadInvoices);
 router.get('/crm/leads/:leadId', getCrmLead);
 router.post('/crm/leads', createCrmLead);
 router.patch('/crm/leads/:leadId', patchCrmLead);

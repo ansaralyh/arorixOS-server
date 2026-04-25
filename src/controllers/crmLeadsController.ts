@@ -12,8 +12,9 @@ import {
   canViewAllLeads,
 } from '../utils/crmAccess';
 import {
-  fetchCrmFieldRowsForBusiness,
+  firstMissingForStageEntry,
   firstMissingRequiredCrmField,
+  fetchCrmConfigPartsForBusiness,
 } from '../utils/crmLeadRequiredFields';
 function formatEnteredOn(d: Date) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -441,8 +442,9 @@ export const createCrmLead = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  const crmFieldRows = await fetchCrmFieldRowsForBusiness(businessId);
-  const createMissing = firstMissingRequiredCrmField(crmFieldRows, {
+  const { fieldRows: crmFieldRows, stageReqs } = await fetchCrmConfigPartsForBusiness(businessId);
+  const acct: 'personal' | 'commercial' = accountType;
+  const leadSnap = {
     name,
     email: typeof email === 'string' ? email : '',
     phone: typeof phone === 'string' ? phone : '',
@@ -450,10 +452,15 @@ export const createCrmLead = catchAsync(async (req: Request, res: Response) => {
     source: typeof source === 'string' ? source : '',
     notes: typeof notes === 'string' ? notes : '',
     stage: stageKey,
-    accountType,
+    accountType: acct,
     urgency,
     ownerUserId,
-  });
+  };
+  const stageEntryMissing = firstMissingForStageEntry(stageReqs, stageKey, crmFieldRows, leadSnap);
+  if (stageEntryMissing) {
+    throw new AppError(`Cannot add a lead in this stage: ${stageEntryMissing} is required.`, 400);
+  }
+  const createMissing = firstMissingRequiredCrmField(crmFieldRows, leadSnap);
   if (createMissing) {
     throw new AppError(`${createMissing} is required.`, 400);
   }
@@ -562,8 +569,10 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  const crmFieldRowsPatch = await fetchCrmFieldRowsForBusiness(businessId);
-  const patchMissing = firstMissingRequiredCrmField(crmFieldRowsPatch, {
+  const { fieldRows: crmFieldRowsPatch, stageReqs: stageReqsPatch } = await fetchCrmConfigPartsForBusiness(
+    businessId
+  );
+  const postPatchSnapshot = {
     name: mName,
     email: mEmail,
     phone: mPhone,
@@ -574,7 +583,20 @@ export const patchCrmLead = catchAsync(async (req: Request, res: Response) => {
     accountType: mAccount,
     urgency: mUrgency,
     ownerUserId: mOwner,
-  });
+  };
+  const stageIsChanging = body.stage != null && String(body.stage).trim() && mStage !== cur.stage_key;
+  if (stageIsChanging) {
+    const stageEntryMissing = firstMissingForStageEntry(
+      stageReqsPatch,
+      mStage,
+      crmFieldRowsPatch,
+      postPatchSnapshot
+    );
+    if (stageEntryMissing) {
+      throw new AppError(`Cannot move to this stage: ${stageEntryMissing} is required.`, 400);
+    }
+  }
+  const patchMissing = firstMissingRequiredCrmField(crmFieldRowsPatch, postPatchSnapshot);
   if (patchMissing) {
     throw new AppError(`${patchMissing} is required.`, 400);
   }

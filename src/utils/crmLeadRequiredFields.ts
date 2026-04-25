@@ -129,12 +129,71 @@ function parseCrmFieldRows(crmConfig: unknown): CrmFieldRow[] {
 }
 
 /**
- * Load CRM field rules for a business. If no `business_crm_settings` row exists, returns [] (no extra rules).
+ * Per-stage "must have these field values before entering this stage" (from `crm_config.stageRequirements`).
  */
-export async function fetchCrmFieldRowsForBusiness(businessId: string): Promise<CrmFieldRow[]> {
+export type StageRequirementRow = { stageId: string; requiredFields: string[] };
+
+function parseStageRequirements(crmConfig: unknown): StageRequirementRow[] {
+  if (crmConfig == null || typeof crmConfig !== 'object' || Array.isArray(crmConfig)) {
+    return [];
+  }
+  const raw = (crmConfig as { stageRequirements?: unknown }).stageRequirements;
+  if (!Array.isArray(raw)) return [];
+  const out: StageRequirementRow[] = [];
+  for (const x of raw) {
+    if (x == null || typeof x !== 'object' || Array.isArray(x)) continue;
+    const o = x as Record<string, unknown>;
+    const stageId = typeof o.stageId === 'string' ? o.stageId : '';
+    if (!stageId) continue;
+    const rf = o.requiredFields;
+    const requiredFields = Array.isArray(rf) ? rf.filter((id): id is string => typeof id === 'string') : [];
+    out.push({ stageId, requiredFields });
+  }
+  return out;
+}
+
+/**
+ * One `business_crm_settings` read: field rows + stage requirements.
+ */
+export async function fetchCrmConfigPartsForBusiness(
+  businessId: string
+): Promise<{ fieldRows: CrmFieldRow[]; stageReqs: StageRequirementRow[] }> {
   const r = await pool.query(`SELECT crm_config FROM business_crm_settings WHERE business_id = $1`, [
     businessId,
   ]);
-  if (!r.rows[0]) return [];
-  return parseCrmFieldRows((r.rows[0] as { crm_config: unknown }).crm_config);
+  if (!r.rows[0]) {
+    return { fieldRows: [], stageReqs: [] };
+  }
+  const crm = (r.rows[0] as { crm_config: unknown }).crm_config;
+  return { fieldRows: parseCrmFieldRows(crm), stageReqs: parseStageRequirements(crm) };
+}
+
+/**
+ * Load CRM field rules for a business. If no `business_crm_settings` row exists, returns [] (no extra rules).
+ */
+export async function fetchCrmFieldRowsForBusiness(businessId: string): Promise<CrmFieldRow[]> {
+  const { fieldRows } = await fetchCrmConfigPartsForBusiness(businessId);
+  return fieldRows;
+}
+
+/**
+ * When lead enters `targetStage`, each enabled mappable field in the rule must be non-empty in `snapshot`.
+ */
+export function firstMissingForStageEntry(
+  stageReqs: StageRequirementRow[],
+  targetStage: string,
+  fieldRows: CrmFieldRow[],
+  snapshot: CrmLeadFieldSnapshot
+): string | null {
+  const rule = stageReqs.find((r) => r.stageId === targetStage);
+  if (!rule?.requiredFields.length) return null;
+  for (const fieldId of rule.requiredFields) {
+    const f = fieldRows.find((row) => row.id === fieldId);
+    if (!f || !f.enabled) continue;
+    if (!MAPPABLE_FIELD_IDS.has(fieldId)) continue;
+    if (COMMERCIAL_ONLY_FIELD_IDS.has(fieldId) && snapshot.accountType !== 'commercial') continue;
+    const v = getFieldString(fieldId, snapshot);
+    if (!v) return f.label;
+  }
+  return null;
 }

@@ -7,6 +7,16 @@ import { getEffectivePermissions, assertCrmView } from '../utils/crmAccess';
 const MAX_CRM_CONFIG_BYTES = 512 * 1024;
 const CURRENT_SCHEMA = 1;
 
+/** CRM Settings UI "permissions" matrix is not persisted — workspace RBAC is source of truth. */
+function stripCrmConfigPermissionsForClient(crmConfig: unknown): unknown {
+  if (crmConfig == null || typeof crmConfig !== 'object' || Array.isArray(crmConfig)) {
+    return crmConfig;
+  }
+  const o = { ...(crmConfig as Record<string, unknown>) };
+  delete o.permissions;
+  return o;
+}
+
 /**
  * GET /api/businesses/crm/settings
  * Returns versioned JSON snapshot for the workspace (or null config if never saved).
@@ -38,11 +48,12 @@ export const getCrmSettings = catchAsync(async (req: Request, res: Response) => 
     crm_config: unknown;
     updated_at: Date;
   };
+  const crmConfig = stripCrmConfigPermissionsForClient(row.crm_config);
   return res.status(200).json({
     status: 'success',
     data: {
       schemaVersion: row.schema_version,
-      crmConfig: row.crm_config,
+      crmConfig,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
     },
   });
@@ -67,7 +78,8 @@ export const putCrmSettings = catchAsync(async (req: Request, res: Response) => 
     throw new AppError('crmConfig must be a JSON object.', 400);
   }
 
-  const raw = JSON.stringify(crmConfig);
+  const toStore = stripCrmConfigPermissionsForClient(crmConfig);
+  const raw = JSON.stringify(toStore);
   if (Buffer.byteLength(raw, 'utf8') > MAX_CRM_CONFIG_BYTES) {
     throw new AppError(`CRM settings payload is too large (max ${MAX_CRM_CONFIG_BYTES} bytes).`, 400);
   }
@@ -87,7 +99,7 @@ export const putCrmSettings = catchAsync(async (req: Request, res: Response) => 
        crm_config = EXCLUDED.crm_config,
        updated_at = CURRENT_TIMESTAMP
      RETURNING schema_version, crm_config, updated_at`,
-    [businessId, schemaVersion, crmConfig as object]
+    [businessId, schemaVersion, toStore as object]
   );
   const row = r.rows[0] as {
     schema_version: number;
@@ -98,7 +110,7 @@ export const putCrmSettings = catchAsync(async (req: Request, res: Response) => 
     status: 'success',
     data: {
       schemaVersion: row.schema_version,
-      crmConfig: row.crm_config,
+      crmConfig: stripCrmConfigPermissionsForClient(row.crm_config),
       updatedAt: new Date(row.updated_at).toISOString(),
     },
   });
