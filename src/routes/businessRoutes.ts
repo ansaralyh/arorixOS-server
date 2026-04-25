@@ -28,6 +28,20 @@ import {
   patchTicket,
   createCallRequest,
 } from '../controllers/supportController';
+import {
+  listCrmPipelines,
+  createCrmPipeline,
+  patchCrmPipeline,
+  deleteCrmPipeline,
+  putCrmPipelineStages,
+} from '../controllers/crmPipelineController';
+import {
+  listCrmLeads,
+  getCrmLead,
+  createCrmLead,
+  patchCrmLead,
+  deleteCrmLead,
+} from '../controllers/crmLeadsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -73,6 +87,20 @@ router.put('/mode-settings', updateBusinessModeSettings);
 // Workspace permission matrix (merged defaults + DB overrides)
 router.get('/role-permissions', requireTeamAdmin, getRolePermissions);
 router.patch('/role-permissions', requireTeamAdmin, patchRolePermissions);
+
+// CRM — pipelines & stages (Phase 1)
+router.get('/crm/pipelines', listCrmPipelines);
+router.post('/crm/pipelines', createCrmPipeline);
+router.patch('/crm/pipelines/:pipelineId', patchCrmPipeline);
+router.delete('/crm/pipelines/:pipelineId', deleteCrmPipeline);
+router.put('/crm/pipelines/:pipelineId/stages', putCrmPipelineStages);
+
+// CRM — leads
+router.get('/crm/leads', listCrmLeads);
+router.get('/crm/leads/:leadId', getCrmLead);
+router.post('/crm/leads', createCrmLead);
+router.patch('/crm/leads/:leadId', patchCrmLead);
+router.delete('/crm/leads/:leadId', deleteCrmLead);
 
 // Support: KB (read), tickets, call requests (no live chat API)
 router.get('/support/kb/categories', listKbCategories);
