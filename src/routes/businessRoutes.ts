@@ -37,6 +37,7 @@ import {
 } from '../controllers/crmPipelineController';
 import {
   listCrmLeads,
+  getCrmLeadsFilterMeta,
   getCrmLead,
   createCrmLead,
   patchCrmLead,
@@ -103,7 +104,8 @@ router.patch('/crm/pipelines/:pipelineId', patchCrmPipeline);
 router.delete('/crm/pipelines/:pipelineId', deleteCrmPipeline);
 router.put('/crm/pipelines/:pipelineId/stages', putCrmPipelineStages);
 
-// CRM — leads
+// CRM — leads (static paths before :leadId)
+router.get('/crm/leads/filters', getCrmLeadsFilterMeta);
 router.get('/crm/leads', listCrmLeads);
 router.get('/crm/leads/:leadId', getCrmLead);
 router.post('/crm/leads', createCrmLead);

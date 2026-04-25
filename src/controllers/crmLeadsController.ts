@@ -110,6 +110,64 @@ async function assertStageInPipeline(
   }
 }
 
+function trimStr(s: unknown, max: number): string {
+  if (s == null || typeof s !== 'string') return '';
+  return s.trim().slice(0, max);
+}
+
+/** Escape for ILIKE: %, _, \ */
+function ilikeTerm(raw: string): string {
+  return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
+ * GET /api/businesses/crm/leads/filters
+ * Distinct lead sources and tag strings for the current business (for pipeline filter UI).
+ * Placed on a dedicated path so it is not caught by :leadId.
+ */
+export const getCrmLeadsFilterMeta = catchAsync(async (req: Request, res: Response) => {
+  const businessId = req.user?.businessId;
+  const userId = req.user?.id;
+  const role = req.user?.membershipRole;
+  if (!businessId || !userId || !role) throw new AppError('Not authenticated.', 401);
+  const perms = await getEffectivePermissions(businessId, role);
+  assertCrmView(perms);
+  const viewAll = canViewAllLeads(perms);
+
+  const whereScope = viewAll
+    ? 'l.business_id = $1'
+    : 'l.business_id = $1 AND l.owner_user_id = $2::uuid';
+  const baseArgs: unknown[] = viewAll ? [businessId] : [businessId, userId];
+
+  const rSources = await pool.query(
+    `SELECT DISTINCT TRIM(l.source) AS s
+     FROM crm_leads l
+     WHERE ${whereScope} AND COALESCE(TRIM(l.source), '') <> ''
+     ORDER BY 1
+     LIMIT 200`,
+    baseArgs
+  );
+  const sources = (rSources.rows as { s: string }[]).map((x) => x.s).filter(Boolean);
+
+  const rTags = await pool.query(
+    `SELECT l.tags
+     FROM crm_leads l
+     WHERE ${whereScope}
+     LIMIT 2000`,
+    baseArgs
+  );
+  const tagSet = new Set<string>();
+  for (const row of rTags.rows) {
+    for (const t of mapTagsFromDb((row as { tags: unknown }).tags)) {
+      if (t) tagSet.add(t);
+    }
+  }
+  const tags = Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+
+  res.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+  res.status(200).json({ status: 'success', data: { sources, tags } });
+});
+
 function toApiLead(row: LeadRow) {
   const pipelineId = row.is_default ? 'main' : row.pipeline_id;
   const o = ownerLabel(row.first_name, row.last_name, row.owner_email);
@@ -179,6 +237,92 @@ export const listCrmLeads = catchAsync(async (req: Request, res: Response) => {
     where += ` AND l.stage_key = $${next}`;
     args.push(stageKey);
     next += 1;
+  }
+
+  const unassigned = String(req.query.unassigned || '') === '1' || String(req.query.unassigned || '') === 'true';
+  if (unassigned) {
+    where += ` AND l.owner_user_id IS NULL`;
+  }
+
+  const ownerUserIdQ = typeof req.query.ownerUserId === 'string' ? req.query.ownerUserId.trim() : '';
+  if (!unassigned && ownerUserIdQ && looksLikeUuid(ownerUserIdQ)) {
+    const m = await pool.query(
+      `SELECT 1 FROM business_members WHERE business_id = $1 AND user_id = $2::uuid`,
+      [businessId, ownerUserIdQ]
+    );
+    if (m.rows[0]) {
+      where += ` AND l.owner_user_id = $${next}::uuid`;
+      args.push(ownerUserIdQ);
+      next += 1;
+    }
+  }
+
+  const sourceQ = trimStr(req.query.source, 200);
+  if (sourceQ) {
+    where += ` AND LOWER(TRIM(l.source)) = LOWER(TRIM($${next}))`;
+    args.push(sourceQ);
+    next += 1;
+  }
+
+  const urgencyQ = trimStr(req.query.urgency, 20);
+  if (urgencyQ && ['low', 'medium', 'high'].includes(urgencyQ)) {
+    where += ` AND l.urgency = $${next}`;
+    args.push(urgencyQ);
+    next += 1;
+  }
+
+  const accountQ = trimStr(req.query.accountType, 20);
+  if (accountQ === 'personal' || accountQ === 'commercial') {
+    where += ` AND l.account_type = $${next}`;
+    args.push(accountQ);
+    next += 1;
+  }
+
+  const tagQ = trimStr(req.query.tag, 100);
+  if (tagQ) {
+    // tags JSON array contains string; safe parameterised json
+    const arr = JSON.stringify([tagQ]);
+    where += ` AND l.tags @> $${next}::jsonb`;
+    args.push(arr);
+    next += 1;
+  }
+
+  const excludeTagQ = trimStr(req.query.excludeTag, 100);
+  if (excludeTagQ) {
+    where += ` AND NOT (l.tags @> $${next}::jsonb)`;
+    args.push(JSON.stringify([excludeTagQ]));
+    next += 1;
+  }
+
+  const searchQ = trimStr(req.query.q, 200);
+  if (searchQ) {
+    const t = '%' + ilikeTerm(searchQ) + '%';
+    where += ` AND (
+      l.name ILIKE $${next} ESCAPE '\\' OR l.email ILIKE $${next} ESCAPE '\\'
+      OR l.phone ILIKE $${next} ESCAPE '\\' OR l.company ILIKE $${next} ESCAPE '\\'
+      OR l.notes ILIKE $${next} ESCAPE '\\'
+    )`;
+    args.push(t);
+    next += 1;
+  }
+
+  const createdFrom = typeof req.query.createdFrom === 'string' ? req.query.createdFrom.trim() : '';
+  const createdTo = typeof req.query.createdTo === 'string' ? req.query.createdTo.trim() : '';
+  if (createdFrom) {
+    const d = new Date(createdFrom);
+    if (!Number.isNaN(d.getTime())) {
+      where += ` AND l.created_at >= $${next}::timestamptz`;
+      args.push(d.toISOString());
+      next += 1;
+    }
+  }
+  if (createdTo) {
+    const d = new Date(createdTo);
+    if (!Number.isNaN(d.getTime())) {
+      where += ` AND l.created_at <= $${next}::timestamptz`;
+      args.push(d.toISOString());
+      next += 1;
+    }
   }
 
   const r = await pool.query(

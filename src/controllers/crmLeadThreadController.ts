@@ -28,13 +28,17 @@ type MessageRow = {
   campaign_id: string | null;
 };
 
-async function getLeadOwner(businessId: string, leadId: string) {
+/** `ownerUserId` may be null for unassigned leads — do not treat that as “lead not found”. */
+async function resolveLeadForThread(
+  businessId: string,
+  leadId: string
+): Promise<{ ok: true; ownerUserId: string | null } | { ok: false }> {
   const r = await pool.query(
     `SELECT owner_user_id FROM crm_leads WHERE id = $1::uuid AND business_id = $2`,
     [leadId, businessId]
   );
-  if (!r.rows[0]) return null;
-  return r.rows[0].owner_user_id as string | null;
+  if (!r.rows[0]) return { ok: false };
+  return { ok: true, ownerUserId: (r.rows[0].owner_user_id as string | null) ?? null };
 }
 
 function extraObj(extra: unknown): Record<string, unknown> {
@@ -98,9 +102,9 @@ export const listCrmLeadActivities = catchAsync(async (req: Request, res: Respon
   const perms = await getEffectivePermissions(businessId, role);
   assertCrmView(perms);
   const leadId = String(req.params.leadId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const r = await pool.query(
     `SELECT id, activity_type, occurred_at, details, extra
@@ -127,9 +131,9 @@ export const createCrmLeadActivity = catchAsync(async (req: Request, res: Respon
   assertCrmView(perms);
   assertCrmEditLeads(perms);
   const leadId = String(req.params.leadId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const body = req.body || {};
   const activityType = typeof body.type === 'string' ? body.type.trim() : '';
@@ -167,9 +171,9 @@ export const patchCrmLeadActivity = catchAsync(async (req: Request, res: Respons
   assertCrmEditLeads(perms);
   const leadId = String(req.params.leadId || '');
   const activityId = String(req.params.activityId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const body = req.body || {};
   const r0 = await pool.query(
@@ -208,9 +212,9 @@ export const deleteCrmLeadActivity = catchAsync(async (req: Request, res: Respon
   assertCrmEditLeads(perms);
   const leadId = String(req.params.leadId || '');
   const activityId = String(req.params.activityId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const d = await pool.query(
     `DELETE FROM crm_lead_activities
@@ -234,9 +238,9 @@ export const listCrmLeadConversations = catchAsync(async (req: Request, res: Res
   const perms = await getEffectivePermissions(businessId, role);
   assertCrmView(perms);
   const leadId = String(req.params.leadId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const r = await pool.query(
     `SELECT id, content, sender, sender_type, sent_at, is_internal, mentions, campaign_id
@@ -263,9 +267,9 @@ export const createCrmLeadConversation = catchAsync(async (req: Request, res: Re
   assertCrmView(perms);
   assertCrmEditLeads(perms);
   const leadId = String(req.params.leadId || '');
-  const owner = await getLeadOwner(businessId, leadId);
-  if (owner === null) throw new AppError('Lead not found.', 404);
-  assertLeadRowScope(perms, userId, owner);
+  const resolved = await resolveLeadForThread(businessId, leadId);
+  if (!resolved.ok) throw new AppError('Lead not found.', 404);
+  assertLeadRowScope(perms, userId, resolved.ownerUserId);
 
   const body = req.body || {};
   const content = typeof body.content === 'string' ? body.content : '';
