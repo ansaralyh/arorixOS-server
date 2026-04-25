@@ -42,6 +42,14 @@ import {
   patchCrmLead,
   deleteCrmLead,
 } from '../controllers/crmLeadsController';
+import {
+  listCrmLeadActivities,
+  createCrmLeadActivity,
+  patchCrmLeadActivity,
+  deleteCrmLeadActivity,
+  listCrmLeadConversations,
+  createCrmLeadConversation,
+} from '../controllers/crmLeadThreadController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -101,6 +109,12 @@ router.get('/crm/leads/:leadId', getCrmLead);
 router.post('/crm/leads', createCrmLead);
 router.patch('/crm/leads/:leadId', patchCrmLead);
 router.delete('/crm/leads/:leadId', deleteCrmLead);
+router.get('/crm/leads/:leadId/activities', listCrmLeadActivities);
+router.post('/crm/leads/:leadId/activities', createCrmLeadActivity);
+router.patch('/crm/leads/:leadId/activities/:activityId', patchCrmLeadActivity);
+router.delete('/crm/leads/:leadId/activities/:activityId', deleteCrmLeadActivity);
+router.get('/crm/leads/:leadId/conversations', listCrmLeadConversations);
+router.post('/crm/leads/:leadId/conversations', createCrmLeadConversation);
 
 // Support: KB (read), tickets, call requests (no live chat API)
 router.get('/support/kb/categories', listKbCategories);

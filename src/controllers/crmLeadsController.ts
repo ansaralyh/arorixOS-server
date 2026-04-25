@@ -161,19 +161,24 @@ export const listCrmLeads = catchAsync(async (req: Request, res: Response) => {
     serverPipeline = await resolvePipelineId(businessId, clientPipeline);
   }
 
-  const args: unknown[] = [businessId, viewAll, userId];
-  let idx = 4;
-  let where =
-    'l.business_id = $1 AND ( $2 = TRUE OR l.owner_user_id = $3::uuid )';
+  // Two explicit branches: avoid boolean parameter quirks and keep assigned-only scoping clear.
+  const args: unknown[] = [businessId];
+  let next = 2;
+  let where = 'l.business_id = $1';
+  if (!viewAll) {
+    where += ` AND l.owner_user_id = $${next}::uuid`;
+    args.push(userId);
+    next += 1;
+  }
   if (serverPipeline) {
-    where += ` AND l.pipeline_id = $${idx}::uuid`;
+    where += ` AND l.pipeline_id = $${next}::uuid`;
     args.push(serverPipeline);
-    idx++;
+    next += 1;
   }
   if (stageKey) {
-    where += ` AND l.stage_key = $${idx}`;
+    where += ` AND l.stage_key = $${next}`;
     args.push(stageKey);
-    idx++;
+    next += 1;
   }
 
   const r = await pool.query(
@@ -191,6 +196,7 @@ export const listCrmLeads = catchAsync(async (req: Request, res: Response) => {
   );
 
   const leads = (r.rows as LeadRow[]).map((row) => toApiLead(row));
+  res.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
   res.status(200).json({ status: 'success', data: { leads } });
 });
 
