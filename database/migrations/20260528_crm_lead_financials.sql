@@ -1,6 +1,6 @@
 -- CRM: estimates & invoices per lead (server source of truth for lead sheet Money tabs).
 
-CREATE TABLE IF NOT EXISTS crm_lead_estimates (
+CREATE TABLE IF NOT EXISTS  (
   id UUID PRIMARY KEY,
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   lead_id UUID NOT NULL REFERENCES crm_leads(id) ON DELETE CASCADE,

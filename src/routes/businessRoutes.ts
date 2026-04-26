@@ -59,7 +59,14 @@ import {
   putCrmLeadInvoices,
 } from '../controllers/crmLeadFinancialsController';
 import { getCrmLeadJobs, putCrmLeadJobs } from '../controllers/crmLeadJobsController';
+import {
+  listCrmLeadFiles,
+  createCrmLeadFile,
+  downloadCrmLeadFile,
+  deleteCrmLeadFile,
+} from '../controllers/crmLeadFilesController';
 import { getCrmCustomersFilterMeta, listCrmCustomers } from '../controllers/crmCustomersController';
+import { getCrmInsights } from '../controllers/crmInsightsController';
 import { protect } from '../middlewares/authMiddleware';
 import { requireBusinessMembership, requireTeamAdmin } from '../middlewares/membershipMiddleware';
 
@@ -121,6 +128,9 @@ router.put('/crm/settings', requireTeamAdmin, putCrmSettings);
 router.get('/crm/customers/filters', getCrmCustomersFilterMeta);
 router.get('/crm/customers', listCrmCustomers);
 
+// CRM — insights (aggregates; static path before :leadId)
+router.get('/crm/insights', getCrmInsights);
+
 // CRM — leads (static paths before :leadId)
 router.get('/crm/leads/filters', getCrmLeadsFilterMeta);
 router.get('/crm/leads', listCrmLeads);
@@ -130,6 +140,10 @@ router.get('/crm/leads/:leadId/invoices', getCrmLeadInvoices);
 router.put('/crm/leads/:leadId/invoices', putCrmLeadInvoices);
 router.get('/crm/leads/:leadId/jobs', getCrmLeadJobs);
 router.put('/crm/leads/:leadId/jobs', putCrmLeadJobs);
+router.get('/crm/leads/:leadId/files', listCrmLeadFiles);
+router.post('/crm/leads/:leadId/files', createCrmLeadFile);
+router.get('/crm/leads/:leadId/files/:fileId/download', downloadCrmLeadFile);
+router.delete('/crm/leads/:leadId/files/:fileId', deleteCrmLeadFile);
 router.get('/crm/leads/:leadId', getCrmLead);
 router.post('/crm/leads', createCrmLead);
 router.patch('/crm/leads/:leadId', patchCrmLead);
